@@ -1,0 +1,25 @@
+[Unit]
+Description=mdrouter LLM Router
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/opt/mdrouter
+EnvironmentFile=/opt/mdrouter/.env
+ExecStart=/opt/mdrouter/.venv/bin/python -m mdrouter --config /opt/mdrouter/config/providers.json
+Restart=always
+RestartSec=3
+KillSignal=SIGINT
+TimeoutStopSec=20
+
+# Tighten defaults while still allowing outbound API calls
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/mdrouter/logs
+
+[Install]
+WantedBy=multi-user.target

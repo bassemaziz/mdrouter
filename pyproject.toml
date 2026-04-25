@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mdrouter"
+version = "0.2.0"
+description = "OpenAI/Ollama-compatible multi-provider LLM router focused on cost and performance."
+requires-python = ">=3.11"
+authors = [
+  { name = "Bassem Aziz", email = "bassemaziz@outlook.com" },
+]
+license = { text = "MIT" }
+classifiers = [
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+  "fastapi>=0.115.0",
+  "uvicorn>=0.30.0",
+  "httpx>=0.27.0",
+  "pydantic>=2.8.0",
+  "pydantic-settings>=2.4.0",
+  "redis>=5.0.0",
+]
+
+[project.scripts]
+mdrouter = "mdrouter.main:main"
+mdrouterctl = "mdrouter.ops:main"
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2.0",
+  "pytest-asyncio>=0.23.0",
+  "respx>=0.21.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.setuptools]
+packages = ["mdrouter", "mdrouter.adapters"]

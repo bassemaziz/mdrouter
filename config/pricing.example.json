@@ -1,0 +1,20 @@
+{
+  "default": {
+    "prompt_per_mtok": 1.0,
+    "completion_per_mtok": 2.0
+  },
+  "models": {
+    "novita/deepseek-r1": {
+      "prompt_per_mtok": 0.55,
+      "completion_per_mtok": 2.19
+    },
+    "alibaba/qwen-plus": {
+      "prompt_per_mtok": 0.8,
+      "completion_per_mtok": 2.4
+    },
+    "zai/glm-4.5": {
+      "prompt_per_mtok": 0.6,
+      "completion_per_mtok": 1.8
+    }
+  }
+}

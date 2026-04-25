@@ -1,0 +1,59 @@
+{
+  "server": {
+    "host": "127.0.0.1",
+    "port": 11435,
+    "log_level": "info",
+    "request_timeout": 90,
+    "bind_localhost_only": true
+  },
+  "providers": {
+    "novita": {
+      "type": "openai_compat",
+      "base_url": "https://api.novita.ai/v3/openai",
+      "api_key_env": "NOVITA_API_KEY",
+      "headers": {},
+      "wire_format": "openai_chat",
+      "timeout": 90
+    },
+    "alibaba": {
+      "type": "openai_compat",
+      "base_url": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+      "api_key_env": "ALIBABA_API_KEY",
+      "headers": {},
+      "wire_format": "openai_chat",
+      "timeout": 90
+    },
+    "zai": {
+      "type": "openai_compat",
+      "base_url": "https://api.z.ai/api/paas/v4",
+      "api_key_env": "ZAI_API_KEY",
+      "headers": {},
+      "wire_format": "openai_chat",
+      "timeout": 90
+    }
+  },
+  "models": {
+    "novita/deepseek-r1": {
+      "provider": "novita",
+      "upstream_model": "deepseek/deepseek-r1",
+      "capabilities": ["chat", "stream", "tools", "vision"],
+      "extra": {}
+    },
+    "alibaba/qwen-plus": {
+      "provider": "alibaba",
+      "upstream_model": "qwen-plus",
+      "capabilities": ["chat", "stream", "tools", "vision"],
+      "extra": {}
+    },
+    "zai/glm-4.5": {
+      "provider": "zai",
+      "upstream_model": "glm-4.5",
+      "capabilities": ["chat", "stream", "tools", "vision"],
+      "extra": {}
+    }
+  },
+  "routing": {
+    "strict_provider_prefix": true,
+    "unknown_model_behavior": "error"
+  }
+}

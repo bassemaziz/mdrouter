@@ -1,0 +1,37 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.egg-info/
+.env
+logs/
+
+# Python caches and artifacts
+*.pyo
+*.pyd
+.python-version
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.hypothesis/
+
+# Test and coverage output
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Packaging/build outputs
+build/
+dist/
+*.egg
+pip-wheel-metadata/
+
+# Editor/IDE files
+.vscode/
+.idea/
+.codex/
+
+# OS noise
+.DS_Store
+Thumbs.db

@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SERVICE_NAME="${MDR_SERVICE_NAME:-mdrouter@${USER}.service}"
+ROOT_DIR="${MDR_ROOT_DIR:-/opt/mdrouter}"
+PYTHON_BIN="${MDR_PYTHON_BIN:-${ROOT_DIR}/.venv/bin/python}"
+LOG_FILE="${MDR_LOG_FILE:-${ROOT_DIR}/logs/router_requests.jsonl}"
+PRICING_FILE="${MDR_PRICING_FILE:-${ROOT_DIR}/config/pricing.example.json}"
+
+usage() {
+  cat <<'EOF'
+mdrouterctl system helper
+
+Usage:
+  mdrouterctl start
+  mdrouterctl stop
+  mdrouterctl restart
+  mdrouterctl status
+  mdrouterctl logs
+  mdrouterctl cost [hours]
+
+Environment overrides:
+  MDR_SERVICE_NAME, MDR_ROOT_DIR, MDR_PYTHON_BIN, MDR_LOG_FILE, MDR_PRICING_FILE
+EOF
+}
+
+cmd="${1:-}"
+case "${cmd}" in
+  start)
+    sudo systemctl start "${SERVICE_NAME}"
+    ;;
+  stop)
+    sudo systemctl stop "${SERVICE_NAME}"
+    ;;
+  restart)
+    sudo systemctl restart "${SERVICE_NAME}"
+    ;;
+  status)
+    sudo systemctl status "${SERVICE_NAME}" --no-pager
+    ;;
+  logs)
+    sudo journalctl -u "${SERVICE_NAME}" -f
+    ;;
+  cost)
+    hours="${2:-24}"
+    "${PYTHON_BIN}" -m mdrouter.ops status --hours "${hours}" --log-file "${LOG_FILE}" --pricing "${PRICING_FILE}"
+    ;;
+  *)
+    usage
+    exit 1
+    ;;
+esac
