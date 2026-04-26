@@ -47,7 +47,12 @@ def _inject_reasoning_content_for_tool_calls(
             and "reasoning_content" not in clone
         ):
             content = clone.get("content")
-            clone["reasoning_content"] = content if isinstance(content, str) else ""
+            # Use actual content if available and non-empty, otherwise provide placeholder
+            if isinstance(content, str) and content.strip():
+                clone["reasoning_content"] = content
+            else:
+                # Moonshot AI requires non-empty reasoning_content when thinking is enabled
+                clone["reasoning_content"] = "Calling tool."
         patched.append(clone)
     return patched
 
