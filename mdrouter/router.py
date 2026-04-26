@@ -97,7 +97,7 @@ class ModelRouter:
                     model_info={
                         "general.basename": model_cfg.upstream_model.split("/")[-1],
                         "general.architecture": "router",
-                        "router.context_length": 32768,
+                        "router.context_length": model_cfg.context_length,
                     },
                     supports={
                         "vision": "vision" in model_cfg.capabilities,
@@ -237,7 +237,8 @@ class ModelRouter:
             upstream_choices
             and (upstream_choices[0].get("message") or {}).get("tool_calls")
         )
-        content_lower = payload.get("message", {}).get("content", "").lower()
+        message_content = payload.get("message", {}).get("content", "")
+        content_lower = message_content.lower() if isinstance(message_content, str) else ""
         if self.runtime.cache_enabled and not upstream_has_tool_calls and not _content_has_tool_call(content_lower):
             await self.response_cache.store(
                 exact_key=exact_key,
@@ -301,6 +302,7 @@ class ModelRouter:
         content_sent = False
         collected: list[str] = []
         has_tool_calls = False
+        saw_done = False
         try:
             async for upstream_chunk in adapter.chat_stream(provider_req):
                 choices = upstream_chunk.get("choices") or []
@@ -309,9 +311,15 @@ class ModelRouter:
                     if delta.get("tool_calls"):
                         has_tool_calls = True
                 chunk = normalize_chat_stream_chunk(model_alias=model_alias, upstream=upstream_chunk)
-                if chunk["message"]["content"]:
+                if chunk.get("done"):
+                    saw_done = True
+                content = chunk["message"]["content"]
+                delta = chunk.get("delta") or {}
+                has_emittable_delta = bool(content or delta.get("tool_calls") or delta.get("role"))
+                if content:
                     content_sent = True
-                    collected.append(chunk["message"]["content"])
+                    collected.append(content)
+                if has_emittable_delta or chunk.get("done"):
                     yield chunk
         except httpx.TimeoutException as exc:
             raise HTTPException(status_code=504, detail="Upstream request timed out.") from exc
@@ -343,23 +351,30 @@ class ModelRouter:
                     messages=messages,
                     response=payload,
                 )
-            yield done_chunk(model_alias=model_alias, had_content=content_sent)
+            if not saw_done:
+                yield done_chunk(model_alias=model_alias, had_content=content_sent)
 
 
 def normalize_chat_non_stream(*, model_alias: str, upstream: dict[str, Any]) -> dict[str, Any]:
     choices = upstream.get("choices") or []
+    done_reason = "stop"
     if not choices:
-        content = ""
+        message: dict[str, Any] = {"role": "assistant", "content": ""}
     else:
-        message = choices[0].get("message") or {}
-        content = message.get("content") or ""
+        choice = choices[0]
+        message = dict(choice.get("message") or {})
+        if "role" not in message:
+            message["role"] = "assistant"
+        if message.get("content") is None:
+            message["content"] = ""
+        done_reason = choice.get("finish_reason") or "stop"
 
     payload = {
         "model": model_alias,
         "created_at": datetime.now(UTC).isoformat(),
-        "message": {"role": "assistant", "content": content},
+        "message": message,
         "done": True,
-        "done_reason": "stop",
+        "done_reason": done_reason,
     }
     usage = upstream.get("usage")
     if isinstance(usage, dict):
@@ -369,16 +384,23 @@ def normalize_chat_non_stream(*, model_alias: str, upstream: dict[str, Any]) -> 
 
 def normalize_chat_stream_chunk(*, model_alias: str, upstream: dict[str, Any]) -> dict[str, Any]:
     choices = upstream.get("choices") or []
-    content = ""
+    delta: dict[str, Any] = {}
+    finish_reason: str | None = None
     if choices:
-        delta = choices[0].get("delta") or {}
-        content = delta.get("content") or ""
-    return {
+        choice = choices[0]
+        delta = dict(choice.get("delta") or {})
+        finish_reason = choice.get("finish_reason")
+    content = delta.get("content") or ""
+    payload = {
         "model": model_alias,
         "created_at": datetime.now(UTC).isoformat(),
         "message": {"role": "assistant", "content": content},
-        "done": False,
+        "delta": delta,
+        "done": finish_reason is not None,
     }
+    if finish_reason is not None:
+        payload["done_reason"] = finish_reason
+    return payload
 
 
 def done_chunk(*, model_alias: str, had_content: bool) -> dict[str, Any]:

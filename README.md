@@ -36,16 +36,35 @@ Default server:
 
 ## Configure models and providers
 
-Edit config/providers.json and set API keys in .env:
+Use a central file at config/providers.json to select provider config files and enabled providers.
+
+Current pattern:
+- config/providers.json: server, routing, provider_files, enabled_providers
+- config/providers/novita.json: novita provider + novita models
+- config/providers/go.json: go provider + go models
+
+To enable or disable providers, edit enabled_providers in config/providers.json.
+
+Set API keys in .env:
 
 - NOVITA_API_KEY
-- ALIBABA_API_KEY
-- ZAI_API_KEY
+- OPENCODE_GO_API_KEY
 
 Model aliases must use provider/model format, for example:
 - novita/deepseek-r1
-- alibaba/qwen-plus
-- zai/glm-4.5
+- go/glm-5.1
+
+Each model can optionally define context_length (tokens), for example:
+
+```json
+"go/glm-5.1": {
+  "provider": "go",
+  "upstream_model": "glm-5.1",
+  "capabilities": ["chat", "stream", "tools", "vision"],
+  "context_length": 32768,
+  "extra": {}
+}
+```
 
 ## Runtime env vars (important)
 
