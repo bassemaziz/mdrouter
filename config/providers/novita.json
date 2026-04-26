@@ -1,0 +1,21 @@
+{
+  "providers": {
+    "novita": {
+      "type": "openai_compat",
+      "base_url": "https://api.novita.ai/v3/openai",
+      "api_key_env": "NOVITA_API_KEY",
+      "headers": {},
+      "wire_format": "openai_chat",
+      "timeout": 90
+    }
+  },
+  "models": {
+    "novita/deepseek-r1": {
+      "provider": "novita",
+      "upstream_model": "deepseek/deepseek-r1",
+      "capabilities": ["chat", "stream", "tools", "vision"],
+      "context_length": 32768,
+      "extra": {}
+    }
+  }
+}

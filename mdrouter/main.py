@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi import HTTPException
 from fastapi import Request
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from mdrouter.config import AppConfig
 from mdrouter.models import OllamaChatRequest, OllamaGenerateRequest
@@ -36,6 +36,8 @@ class OllamaShowRequest(BaseModel):
 
 
 class OpenAIChatRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     model: str
     messages: list[dict[str, Any]] = Field(default_factory=list)
     stream: bool = False
@@ -484,23 +486,16 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
             "model_info": {
                 "general.basename": basename,
                 "general.architecture": "router",
-                "router.context_length": 32768,
+                "router.context_length": model_cfg.context_length,
             },
         }
 
     @app.post("/v1/chat/completions")
     async def v1_chat_completions(payload: OpenAIChatRequest, req: Request):
-        options: dict[str, Any] = {}
-        if payload.temperature is not None:
-            options["temperature"] = payload.temperature
-        if payload.max_tokens is not None:
-            options["max_tokens"] = payload.max_tokens
-        if payload.top_p is not None:
-            options["top_p"] = payload.top_p
-        if payload.frequency_penalty is not None:
-            options["frequency_penalty"] = payload.frequency_penalty
-        if payload.presence_penalty is not None:
-            options["presence_penalty"] = payload.presence_penalty
+        options = payload.model_dump(
+            exclude={"model", "messages", "stream"},
+            exclude_none=True,
+        )
 
         started = time.perf_counter()
         if payload.stream:
@@ -564,10 +559,11 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                     ):
                         if chunk["message"]["content"]:
                             stream_collected.append(chunk["message"]["content"])
+                        delta = chunk.get("delta") or {"content": chunk["message"]["content"]}
                         choice = {
                             "index": 0,
-                            "delta": {"content": chunk["message"]["content"]},
-                            "finish_reason": "stop" if chunk.get("done") else None,
+                            "delta": delta,
+                            "finish_reason": chunk.get("done_reason") if chunk.get("done") else None,
                         }
                         chunk_payload = {
                             "id": "chatcmpl-router",

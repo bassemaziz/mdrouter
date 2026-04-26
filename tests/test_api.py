@@ -40,6 +40,7 @@ def _write_config(tmp_path) -> str:
                 "provider": "novita",
                 "upstream_model": "demo-upstream",
                 "capabilities": ["chat", "stream"],
+                "context_length": 131072,
                 "extra": {},
             }
         },
@@ -57,6 +58,17 @@ def test_tags_endpoint(tmp_path):
     assert response.status_code == 200
     payload = response.json()
     assert payload["models"][0]["name"] == "novita/demo-model"
+    assert payload["models"][0]["model_info"]["router.context_length"] == 131072
+
+
+def test_show_endpoint_uses_model_context_length(tmp_path):
+    app = create_app(_write_config(tmp_path))
+    client = TestClient(app)
+    response = client.post("/api/show", json={"model": "novita/demo-model"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["model_info"]["router.context_length"] == 131072
 
 
 @respx.mock
@@ -130,4 +142,120 @@ def test_generate_non_stream(tmp_path):
     )
     assert response.status_code == 200
     assert response.json()["response"] == "Generated answer"
+
+
+@respx.mock
+def test_v1_chat_completions_preserves_tools_and_tool_calls(tmp_path):
+    captured_request: dict[str, object] = {}
+
+    def upstream_handler(request):
+        captured_request.update(request.content and json.loads(request.content.decode("utf-8")))
+        return Response(
+            200,
+            json={
+                "id": "x",
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": "",
+                            "tool_calls": [
+                                {
+                                    "id": "call_1",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "read_file",
+                                        "arguments": "{\"path\":\"README.md\"}",
+                                    },
+                                }
+                            ],
+                        },
+                        "finish_reason": "tool_calls",
+                    }
+                ],
+            },
+        )
+
+    respx.post("http://upstream.test/v1/chat/completions").mock(side_effect=upstream_handler)
+
+    app = create_app(_write_config(tmp_path))
+    client = TestClient(app)
+
+    payload = {
+        "model": "novita/demo-model",
+        "messages": [{"role": "user", "content": "list files"}],
+        "tools": [
+            {
+                "type": "function",
+                "function": {
+                    "name": "read_file",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"path": {"type": "string"}},
+                        "required": ["path"],
+                    },
+                },
+            }
+        ],
+        "tool_choice": "auto",
+        "stream": False,
+    }
+    response = client.post("/v1/chat/completions", json=payload)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert captured_request.get("tools") == payload["tools"]
+    assert captured_request.get("tool_choice") == "auto"
+    assert body["choices"][0]["finish_reason"] == "tool_calls"
+    assert body["choices"][0]["message"]["tool_calls"][0]["function"]["name"] == "read_file"
+
+
+@respx.mock
+def test_v1_chat_completions_stream_preserves_tool_call_chunks(tmp_path):
+    sse = (
+        'data: {"choices":[{"delta":{"role":"assistant"},"finish_reason":null}]}\n\n'
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\\"path\\":\\"README.md\\"}"}}]},"finish_reason":null}]}\n\n'
+        'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n'
+        'data: [DONE]\n\n'
+    )
+    respx.post("http://upstream.test/v1/chat/completions").mock(return_value=Response(200, text=sse))
+
+    app = create_app(_write_config(tmp_path))
+    client = TestClient(app)
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "novita/demo-model",
+            "messages": [{"role": "user", "content": "list files"}],
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "read_file",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {"path": {"type": "string"}},
+                        },
+                    },
+                }
+            ],
+            "stream": True,
+        },
+    )
+
+    assert response.status_code == 200
+    events: list[dict[str, object]] = []
+    for line in response.text.splitlines():
+        if not line.startswith("data: "):
+            continue
+        data = line[6:]
+        if data == "[DONE]":
+            continue
+        events.append(json.loads(data))
+
+    assert any(
+        (event["choices"][0].get("delta") or {}).get("tool_calls")
+        for event in events
+    )
+    assert events[-1]["choices"][0]["finish_reason"] == "tool_calls"
 
