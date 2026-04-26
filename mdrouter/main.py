@@ -623,14 +623,24 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                         }
                         yield f"data: {json.dumps(chunk_payload)}\n\n"
                 except HTTPException as exc:
-                    error_payload = {
-                        "error": {
-                            "message": str(exc.detail),
-                            "type": "upstream_error",
-                            "status": exc.status_code,
-                        }
+                    error_message = f"[upstream_error:{exc.status_code}] {exc.detail}"
+                    chunk_payload = {
+                        "id": "chatcmpl-router",
+                        "object": "chat.completion.chunk",
+                        "created": 0,
+                        "model": payload.model,
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {
+                                    "role": "assistant",
+                                    "content": error_message,
+                                },
+                                "finish_reason": "stop",
+                            }
+                        ],
                     }
-                    yield f"data: {json.dumps(error_payload)}\n\n"
+                    yield f"data: {json.dumps(chunk_payload)}\n\n"
                 yield "data: [DONE]\n\n"
                 request_logger.write(
                     {
