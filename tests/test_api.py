@@ -273,3 +273,49 @@ def test_v1_chat_completions_stream_preserves_tool_call_chunks(tmp_path):
         (event["choices"][0].get("delta") or {}).get("tool_calls") for event in events
     )
     assert events[-1]["choices"][0]["finish_reason"] == "tool_calls"
+
+
+@respx.mock
+def test_v1_chat_completions_stream_upstream_http_error_emits_choices_chunk(tmp_path):
+    respx.post("http://upstream.test/v1/chat/completions").mock(
+        return_value=Response(
+            401,
+            json={
+                "error": {
+                    "message": "Invalid API key",
+                    "type": "authentication_error",
+                }
+            },
+        )
+    )
+
+    app = create_app(_write_config(tmp_path))
+    client = TestClient(app)
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "novita/demo-model",
+            "messages": [{"role": "user", "content": "hello"}],
+            "stream": True,
+        },
+    )
+
+    assert response.status_code == 200
+    events: list[dict[str, object]] = []
+    saw_done = False
+    for line in response.text.splitlines():
+        if not line.startswith("data: "):
+            continue
+        data = line[6:]
+        if data == "[DONE]":
+            saw_done = True
+            continue
+        events.append(json.loads(data))
+
+    assert saw_done is True
+    assert len(events) == 1
+    assert "choices" in events[0]
+    assert events[0]["choices"][0]["finish_reason"] == "stop"
+    assert "upstream_error" in (events[0]["choices"][0]["delta"] or {}).get(
+        "content", ""
+    )

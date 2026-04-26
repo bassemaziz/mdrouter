@@ -35,6 +35,23 @@ def _content_has_tool_call(content_lower: str) -> bool:
     return bool(_TOOL_CALL_PATTERNS.search(content_lower))
 
 
+def _inject_reasoning_content_for_tool_calls(
+    messages: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    patched: list[dict[str, Any]] = []
+    for msg in messages:
+        clone = dict(msg)
+        if (
+            clone.get("role") == "assistant"
+            and isinstance(clone.get("tool_calls"), list)
+            and "reasoning_content" not in clone
+        ):
+            content = clone.get("content")
+            clone["reasoning_content"] = content if isinstance(content, str) else ""
+        patched.append(clone)
+    return patched
+
+
 class ModelRouter:
     def __init__(
         self, config: AppConfig, runtime: RuntimeSettings | None = None
@@ -183,6 +200,10 @@ class ModelRouter:
         ):
             mutable_options["prompt_cache_retention"] = (
                 self.runtime.prompt_cache_retention
+            )
+        if provider_name == "go":
+            mutable_messages = _inject_reasoning_content_for_tool_calls(
+                mutable_messages
             )
         if provider_name == "alibaba" and self.runtime.alibaba_explicit_cache:
             mutable_messages = self._inject_alibaba_explicit_cache(mutable_messages)
@@ -359,11 +380,18 @@ class ModelRouter:
                 status_code=504, detail="Upstream request timed out."
             ) from exc
         except httpx.HTTPStatusError as exc:
-            detail = (
-                exc.response.text
-                if exc.response is not None
-                else "Upstream HTTP error."
-            )
+            detail = "Upstream HTTP error."
+            if exc.response is not None:
+                status = exc.response.status_code
+                detail = f"Upstream HTTP {status}."
+                try:
+                    raw = await exc.response.aread()
+                except Exception:
+                    raw = b""
+                if raw:
+                    text = raw.decode("utf-8", errors="replace").strip()
+                    if text:
+                        detail = text
             raise HTTPException(status_code=502, detail=detail[:1000]) from exc
         except httpx.HTTPError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
