@@ -78,7 +78,9 @@ def test_chat_non_stream(tmp_path):
             200,
             json={
                 "id": "x",
-                "choices": [{"message": {"role": "assistant", "content": "Hello from upstream"}}],
+                "choices": [
+                    {"message": {"role": "assistant", "content": "Hello from upstream"}}
+                ],
             },
         )
     )
@@ -112,7 +114,10 @@ def test_chat_stream(tmp_path):
     client = TestClient(app)
     response = client.post(
         "/api/chat",
-        json={"model": "novita/demo-model", "messages": [{"role": "user", "content": "x"}]},
+        json={
+            "model": "novita/demo-model",
+            "messages": [{"role": "user", "content": "x"}],
+        },
     )
     assert response.status_code == 200
 
@@ -129,7 +134,9 @@ def test_generate_non_stream(tmp_path):
             200,
             json={
                 "id": "x",
-                "choices": [{"message": {"role": "assistant", "content": "Generated answer"}}],
+                "choices": [
+                    {"message": {"role": "assistant", "content": "Generated answer"}}
+                ],
             },
         )
     )
@@ -149,7 +156,9 @@ def test_v1_chat_completions_preserves_tools_and_tool_calls(tmp_path):
     captured_request: dict[str, object] = {}
 
     def upstream_handler(request):
-        captured_request.update(request.content and json.loads(request.content.decode("utf-8")))
+        captured_request.update(
+            request.content and json.loads(request.content.decode("utf-8"))
+        )
         return Response(
             200,
             json={
@@ -165,7 +174,7 @@ def test_v1_chat_completions_preserves_tools_and_tool_calls(tmp_path):
                                     "type": "function",
                                     "function": {
                                         "name": "read_file",
-                                        "arguments": "{\"path\":\"README.md\"}",
+                                        "arguments": '{"path":"README.md"}',
                                     },
                                 }
                             ],
@@ -176,7 +185,9 @@ def test_v1_chat_completions_preserves_tools_and_tool_calls(tmp_path):
             },
         )
 
-    respx.post("http://upstream.test/v1/chat/completions").mock(side_effect=upstream_handler)
+    respx.post("http://upstream.test/v1/chat/completions").mock(
+        side_effect=upstream_handler
+    )
 
     app = create_app(_write_config(tmp_path))
     client = TestClient(app)
@@ -207,7 +218,10 @@ def test_v1_chat_completions_preserves_tools_and_tool_calls(tmp_path):
     assert captured_request.get("tools") == payload["tools"]
     assert captured_request.get("tool_choice") == "auto"
     assert body["choices"][0]["finish_reason"] == "tool_calls"
-    assert body["choices"][0]["message"]["tool_calls"][0]["function"]["name"] == "read_file"
+    assert (
+        body["choices"][0]["message"]["tool_calls"][0]["function"]["name"]
+        == "read_file"
+    )
 
 
 @respx.mock
@@ -216,9 +230,11 @@ def test_v1_chat_completions_stream_preserves_tool_call_chunks(tmp_path):
         'data: {"choices":[{"delta":{"role":"assistant"},"finish_reason":null}]}\n\n'
         'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\\"path\\":\\"README.md\\"}"}}]},"finish_reason":null}]}\n\n'
         'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n'
-        'data: [DONE]\n\n'
+        "data: [DONE]\n\n"
     )
-    respx.post("http://upstream.test/v1/chat/completions").mock(return_value=Response(200, text=sse))
+    respx.post("http://upstream.test/v1/chat/completions").mock(
+        return_value=Response(200, text=sse)
+    )
 
     app = create_app(_write_config(tmp_path))
     client = TestClient(app)
@@ -254,8 +270,6 @@ def test_v1_chat_completions_stream_preserves_tool_call_chunks(tmp_path):
         events.append(json.loads(data))
 
     assert any(
-        (event["choices"][0].get("delta") or {}).get("tool_calls")
-        for event in events
+        (event["choices"][0].get("delta") or {}).get("tool_calls") for event in events
     )
     assert events[-1]["choices"][0]["finish_reason"] == "tool_calls"
-

@@ -16,4 +16,3 @@ class ProviderAdapter(ABC):
         self, request: UpstreamProviderRequest
     ) -> AsyncIterator[dict[str, Any]]:
         raise NotImplementedError
-

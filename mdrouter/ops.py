@@ -70,7 +70,9 @@ def _load_pricing(path: Path | None) -> tuple[Price | None, dict[str, Price]]:
     return default_price, per_model
 
 
-def _price_for_model(model: str, default_price: Price | None, per_model: dict[str, Price]) -> Price | None:
+def _price_for_model(
+    model: str, default_price: Price | None, per_model: dict[str, Price]
+) -> Price | None:
     if model in per_model:
         return per_model[model]
     return default_price
@@ -89,7 +91,9 @@ def _status(args: argparse.Namespace) -> int:
     records = _read_jsonl(log_file)
     cutoff = datetime.now(UTC) - timedelta(hours=args.hours)
 
-    default_price, model_prices = _load_pricing(Path(args.pricing) if args.pricing else None)
+    default_price, model_prices = _load_pricing(
+        Path(args.pricing) if args.pricing else None
+    )
 
     model_stats: dict[str, dict[str, Any]] = defaultdict(
         lambda: {
@@ -166,10 +170,9 @@ def _status(args: argparse.Namespace) -> int:
 
             price = _price_for_model(model, default_price, model_prices)
             if price is not None:
-                cost = (
-                    (prompt_tokens / 1_000_000.0) * price.prompt_per_mtok
-                    + (completion_tokens / 1_000_000.0) * price.completion_per_mtok
-                )
+                cost = (prompt_tokens / 1_000_000.0) * price.prompt_per_mtok + (
+                    completion_tokens / 1_000_000.0
+                ) * price.completion_per_mtok
                 model_stats[model]["estimated_cost"] += cost
                 totals["estimated_cost"] += cost
 
@@ -213,7 +216,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="mdrouter operations command")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    status = subparsers.add_parser("status", help="Show traffic, cache and cost summary from logs")
+    status = subparsers.add_parser(
+        "status", help="Show traffic, cache and cost summary from logs"
+    )
     status.add_argument(
         "--log-file",
         default="logs/router_requests.jsonl",

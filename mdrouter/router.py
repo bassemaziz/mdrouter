@@ -23,10 +23,10 @@ from mdrouter.runtime import RuntimeSettings
 import re as _re
 
 _TOOL_CALL_PATTERNS = _re.compile(
-    r'<tool[_\s/]'                          # XML: <tool_call>, <tool >, </tool>
-    r'|"tool"\s*:'                           # JSON key: {"tool": ...}
-    r'|"tool_calls"\s*:'                     # OpenAI JSON: {"tool_calls": ...}
-    r'|```(?:json)?\s*\{\s*"tool"\s*:',      # markdown code block with JSON tool call
+    r"<tool[_\s/]"  # XML: <tool_call>, <tool >, </tool>
+    r'|"tool"\s*:'  # JSON key: {"tool": ...}
+    r'|"tool_calls"\s*:'  # OpenAI JSON: {"tool_calls": ...}
+    r'|```(?:json)?\s*\{\s*"tool"\s*:',  # markdown code block with JSON tool call
     _re.IGNORECASE,
 )
 
@@ -36,7 +36,9 @@ def _content_has_tool_call(content_lower: str) -> bool:
 
 
 class ModelRouter:
-    def __init__(self, config: AppConfig, runtime: RuntimeSettings | None = None) -> None:
+    def __init__(
+        self, config: AppConfig, runtime: RuntimeSettings | None = None
+    ) -> None:
         self.config = config
         self.runtime = runtime or RuntimeSettings.from_env()
         self.response_cache = build_response_cache(self.runtime)
@@ -129,12 +131,15 @@ class ModelRouter:
         adapter = self.adapters.get(model_cfg.provider)
         if not adapter:
             raise HTTPException(
-                status_code=500, detail=f"Provider adapter '{model_cfg.provider}' is missing."
+                status_code=500,
+                detail=f"Provider adapter '{model_cfg.provider}' is missing.",
             )
         return adapter, model_cfg.upstream_model, model_cfg.provider
 
     @staticmethod
-    def _inject_alibaba_explicit_cache(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _inject_alibaba_explicit_cache(
+        messages: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
         patched: list[dict[str, Any]] = []
         injected = False
         for msg in messages:
@@ -167,10 +172,18 @@ class ModelRouter:
         mutable_options = dict(options or {})
         mutable_messages = list(messages)
 
-        if self.runtime.prompt_cache_key_enabled and "prompt_cache_key" not in mutable_options:
+        if (
+            self.runtime.prompt_cache_key_enabled
+            and "prompt_cache_key" not in mutable_options
+        ):
             mutable_options["prompt_cache_key"] = f"router:{model_alias}"
-        if self.runtime.prompt_cache_retention and "prompt_cache_retention" not in mutable_options:
-            mutable_options["prompt_cache_retention"] = self.runtime.prompt_cache_retention
+        if (
+            self.runtime.prompt_cache_retention
+            and "prompt_cache_retention" not in mutable_options
+        ):
+            mutable_options["prompt_cache_retention"] = (
+                self.runtime.prompt_cache_retention
+            )
         if provider_name == "alibaba" and self.runtime.alibaba_explicit_cache:
             mutable_messages = self._inject_alibaba_explicit_cache(mutable_messages)
 
@@ -224,9 +237,15 @@ class ModelRouter:
         try:
             upstream = await adapter.chat_once(provider_req)
         except httpx.TimeoutException as exc:
-            raise HTTPException(status_code=504, detail="Upstream request timed out.") from exc
+            raise HTTPException(
+                status_code=504, detail="Upstream request timed out."
+            ) from exc
         except httpx.HTTPStatusError as exc:
-            detail = exc.response.text if exc.response is not None else "Upstream HTTP error."
+            detail = (
+                exc.response.text
+                if exc.response is not None
+                else "Upstream HTTP error."
+            )
             raise HTTPException(status_code=502, detail=detail[:1000]) from exc
         except httpx.HTTPError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
@@ -238,8 +257,14 @@ class ModelRouter:
             and (upstream_choices[0].get("message") or {}).get("tool_calls")
         )
         message_content = payload.get("message", {}).get("content", "")
-        content_lower = message_content.lower() if isinstance(message_content, str) else ""
-        if self.runtime.cache_enabled and not upstream_has_tool_calls and not _content_has_tool_call(content_lower):
+        content_lower = (
+            message_content.lower() if isinstance(message_content, str) else ""
+        )
+        if (
+            self.runtime.cache_enabled
+            and not upstream_has_tool_calls
+            and not _content_has_tool_call(content_lower)
+        ):
             await self.response_cache.store(
                 exact_key=exact_key,
                 model_alias=model_alias,
@@ -286,13 +311,17 @@ class ModelRouter:
                 if content:
                     yield {
                         "model": model_alias,
-                        "created_at": cached.get("created_at", datetime.now(UTC).isoformat()),
+                        "created_at": cached.get(
+                            "created_at", datetime.now(UTC).isoformat()
+                        ),
                         "message": {"role": "assistant", "content": content},
                         "done": False,
                     }
                 yield {
                     "model": model_alias,
-                    "created_at": cached.get("created_at", datetime.now(UTC).isoformat()),
+                    "created_at": cached.get(
+                        "created_at", datetime.now(UTC).isoformat()
+                    ),
                     "message": {"role": "assistant", "content": ""},
                     "done": True,
                     "done_reason": cached.get("done_reason", "stop"),
@@ -310,21 +339,31 @@ class ModelRouter:
                     delta = choices[0].get("delta") or {}
                     if delta.get("tool_calls"):
                         has_tool_calls = True
-                chunk = normalize_chat_stream_chunk(model_alias=model_alias, upstream=upstream_chunk)
+                chunk = normalize_chat_stream_chunk(
+                    model_alias=model_alias, upstream=upstream_chunk
+                )
                 if chunk.get("done"):
                     saw_done = True
                 content = chunk["message"]["content"]
                 delta = chunk.get("delta") or {}
-                has_emittable_delta = bool(content or delta.get("tool_calls") or delta.get("role"))
+                has_emittable_delta = bool(
+                    content or delta.get("tool_calls") or delta.get("role")
+                )
                 if content:
                     content_sent = True
                     collected.append(content)
                 if has_emittable_delta or chunk.get("done"):
                     yield chunk
         except httpx.TimeoutException as exc:
-            raise HTTPException(status_code=504, detail="Upstream request timed out.") from exc
+            raise HTTPException(
+                status_code=504, detail="Upstream request timed out."
+            ) from exc
         except httpx.HTTPStatusError as exc:
-            detail = exc.response.text if exc.response is not None else "Upstream HTTP error."
+            detail = (
+                exc.response.text
+                if exc.response is not None
+                else "Upstream HTTP error."
+            )
             raise HTTPException(status_code=502, detail=detail[:1000]) from exc
         except httpx.HTTPError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
@@ -355,7 +394,9 @@ class ModelRouter:
                 yield done_chunk(model_alias=model_alias, had_content=content_sent)
 
 
-def normalize_chat_non_stream(*, model_alias: str, upstream: dict[str, Any]) -> dict[str, Any]:
+def normalize_chat_non_stream(
+    *, model_alias: str, upstream: dict[str, Any]
+) -> dict[str, Any]:
     choices = upstream.get("choices") or []
     done_reason = "stop"
     if not choices:
@@ -382,7 +423,9 @@ def normalize_chat_non_stream(*, model_alias: str, upstream: dict[str, Any]) -> 
     return payload
 
 
-def normalize_chat_stream_chunk(*, model_alias: str, upstream: dict[str, Any]) -> dict[str, Any]:
+def normalize_chat_stream_chunk(
+    *, model_alias: str, upstream: dict[str, Any]
+) -> dict[str, Any]:
     choices = upstream.get("choices") or []
     delta: dict[str, Any] = {}
     finish_reason: str | None = None

@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Quality (lint, secrets, deps)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Run pre-commit
+        run: |
+          mkdir -p reports
+          set -o pipefail
+          SKIP=pytest,pip-audit pre-commit run --all-files --show-diff-on-failure | tee reports/pre-commit.txt
+
+      - name: Run dependency audit
+        run: |
+          mkdir -p reports
+          pip-audit \
+            --ignore-vuln CVE-2025-8869 \
+            --ignore-vuln CVE-2026-1703 \
+            --ignore-vuln CVE-2026-3219 \
+            -f json -o reports/pip-audit.json
+
+      - name: Upload quality artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-reports
+          path: reports/
+
+  tests:
+    name: Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Run unit tests
+        run: |
+          mkdir -p reports
+          python -m pytest -q --junitxml=reports/junit.xml
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report-py${{ matrix.python-version }}
+          path: reports/

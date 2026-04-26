@@ -92,8 +92,12 @@ class RuntimeSettings:
             redis_url=os.getenv("ROUTER_REDIS_URL", "redis://127.0.0.1:6379/0"),
             redis_prefix=os.getenv("ROUTER_REDIS_PREFIX", "mdrouter_cache"),
             sem_cache_max_turns=_env_int("ROUTER_SEM_CACHE_MAX_TURNS", 3),
-            sem_cache_include_assistant=_env_bool("ROUTER_SEM_CACHE_INCLUDE_ASSISTANT", False),
-            sem_cache_single_turn_only=_env_bool("ROUTER_SEM_CACHE_SINGLE_TURN_ONLY", True),
+            sem_cache_include_assistant=_env_bool(
+                "ROUTER_SEM_CACHE_INCLUDE_ASSISTANT", False
+            ),
+            sem_cache_single_turn_only=_env_bool(
+                "ROUTER_SEM_CACHE_SINGLE_TURN_ONLY", True
+            ),
         )
 
 
@@ -150,13 +154,13 @@ class ResponseCacheBackend(ABC):
         return content_text.strip()
 
     @classmethod
-    def semantic_text(cls, messages: list[dict[str, Any]], *, settings: RuntimeSettings) -> str:
+    def semantic_text(
+        cls, messages: list[dict[str, Any]], *, settings: RuntimeSettings
+    ) -> str:
         if settings.sem_cache_single_turn_only:
             user_messages = [msg for msg in messages if str(msg.get("role")) == "user"]
             assistant_or_tool = [
-                msg
-                for msg in messages
-                if str(msg.get("role")) in {"assistant", "tool"}
+                msg for msg in messages if str(msg.get("role")) in {"assistant", "tool"}
             ]
             if len(user_messages) != 1 or assistant_or_tool:
                 return ""
@@ -184,13 +188,17 @@ class ResponseCacheBackend(ABC):
         return "\n".join(reversed(selected)).strip()
 
     @staticmethod
-    def normalize_text(messages: list[dict[str, Any]], *, settings: RuntimeSettings) -> str:
+    def normalize_text(
+        messages: list[dict[str, Any]], *, settings: RuntimeSettings
+    ) -> str:
         chunks: list[str] = []
         for msg in messages:
             role = str(msg.get("role", "user"))
             if role not in {"system", "user", "assistant"}:
                 continue
-            content_text = ResponseCacheBackend._normalize_content(msg.get("content", ""))
+            content_text = ResponseCacheBackend._normalize_content(
+                msg.get("content", "")
+            )
             if content_text:
                 chunks.append(f"{role}:{content_text}")
         return "\n".join(chunks).strip()
@@ -218,6 +226,7 @@ class ResponseCacheBackend(ABC):
     def semantic_score(a: str, b: str) -> float:
         if not a or not b:
             return 0.0
+
         def word_tokens(text: str) -> set[str]:
             return {token for token in text.lower().split() if len(token) > 2}
 
@@ -467,11 +476,17 @@ class RedisResponseCache(ResponseCacheBackend):
             "response": response,
             "stored_at": time.time(),
         }
-        await self.client.set(exact_key_name, json.dumps(payload, ensure_ascii=True), ex=self.settings.cache_ttl_sec)
+        await self.client.set(
+            exact_key_name,
+            json.dumps(payload, ensure_ascii=True),
+            ex=self.settings.cache_ttl_sec,
+        )
         if semantic_text:
             idx_key = self._model_index_key(provider, model_alias)
             await self.client.sadd(idx_key, exact_key_name)
-            await self.client.expire(idx_key, max(self.settings.cache_ttl_sec * 2, 3600))
+            await self.client.expire(
+                idx_key, max(self.settings.cache_ttl_sec * 2, 3600)
+            )
 
 
 def build_response_cache(settings: RuntimeSettings) -> ResponseCacheBackend:

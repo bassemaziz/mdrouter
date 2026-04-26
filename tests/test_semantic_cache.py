@@ -77,7 +77,10 @@ async def test_semantic_cache_hits_on_paraphrase():
 async def test_semantic_cache_ignores_system_prompt_noise():
     cache = MemoryResponseCache(_settings())
     original_messages = [
-        {"role": "system", "content": "You are a helpful assistant. Always be concise."},
+        {
+            "role": "system",
+            "content": "You are a helpful assistant. Always be concise.",
+        },
         {"role": "user", "content": "How do I configure Redis for the router?"},
     ]
     response = {"model": "novita/deepseek-r1", "message": {"content": "redis setup"}}
@@ -96,7 +99,10 @@ async def test_semantic_cache_ignores_system_prompt_noise():
     )
 
     changed_question = [
-        {"role": "system", "content": "You are a helpful assistant. Always be concise."},
+        {
+            "role": "system",
+            "content": "You are a helpful assistant. Always be concise.",
+        },
         {"role": "user", "content": "List the files in the repository."},
     ]
     hit, meta = await cache.lookup(
