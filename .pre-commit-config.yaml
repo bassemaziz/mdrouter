@@ -1,0 +1,48 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: check-json
+      - id: check-toml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: detect-private-key
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args:
+          [
+            --exclude-files,
+            ^(.*/)?(\.env|\.env\.example)$,
+            --exclude-lines,
+            "\\\"api_key_env\\\"\\s*:\\s*\\\"[A-Z0-9_]+\\\"",
+          ]
+
+  - repo: local
+    hooks:
+      - id: pip-audit
+        name: pip-audit
+        entry: >-
+          .venv/bin/python -m pip_audit
+          --ignore-vuln CVE-2025-8869
+          --ignore-vuln CVE-2026-1703
+          --ignore-vuln CVE-2026-3219
+        language: system
+        pass_filenames: false
+
+      - id: pytest
+        name: pytest
+        entry: .venv/bin/python -m pytest -q
+        language: system
+        pass_filenames: false

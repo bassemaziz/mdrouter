@@ -90,7 +90,9 @@ class AppConfig(BaseModel):
         enabled_set: set[str] | None = None
         if enabled_providers is not None:
             if not isinstance(enabled_providers, list):
-                raise ValueError("'enabled_providers' must be a list of provider names.")
+                raise ValueError(
+                    "'enabled_providers' must be a list of provider names."
+                )
             enabled_set = {
                 name
                 for name in enabled_providers
@@ -103,7 +105,9 @@ class AppConfig(BaseModel):
         config_dir = config_path.parent
         for rel_path in provider_files:
             if not isinstance(rel_path, str) or not rel_path.strip():
-                raise ValueError("Each entry in 'provider_files' must be a non-empty string.")
+                raise ValueError(
+                    "Each entry in 'provider_files' must be a non-empty string."
+                )
             file_path = (config_dir / rel_path).expanduser().resolve()
             with file_path.open("r", encoding="utf-8") as f:
                 section = json.load(f)
@@ -133,7 +137,9 @@ class AppConfig(BaseModel):
 
         if enabled_set is not None:
             merged_providers = {
-                name: cfg for name, cfg in merged_providers.items() if name in enabled_set
+                name: cfg
+                for name, cfg in merged_providers.items()
+                if name in enabled_set
             }
             merged_models = {
                 alias: cfg

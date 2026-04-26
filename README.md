@@ -167,6 +167,33 @@ See [ROADMAP.md](ROADMAP.md) for planned capabilities such as policy routing, co
 pytest
 ```
 
+## Quality checks and CI
+
+Install and enable local pre-commit hooks:
+
+```bash
+make setup
+make precommit-install
+```
+
+Run the same checks used by CI:
+
+```bash
+make precommit
+```
+
+This runs:
+- lint and formatting checks (ruff + ruff-format)
+- secret scanning
+- dependency vulnerability audit (pip-audit)
+- unit tests
+
+GitHub Actions runs automatically on push to main and on pull requests targeting main.
+Artifacts are uploaded for each run:
+- pre-commit report
+- dependency audit JSON report
+- JUnit test report per Python version (3.11, 3.12, 3.13)
+
 ## License
 
 This project is licensed under the MIT License.

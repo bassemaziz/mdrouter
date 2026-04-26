@@ -158,23 +158,32 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                     cached = cached_entries[0]
                     content = cached.get("message", {}).get("content", "")
                     if content:
-                        yield json.dumps(
+                        yield (
+                            json.dumps(
+                                {
+                                    "model": payload.model,
+                                    "created_at": cached.get("created_at"),
+                                    "message": {
+                                        "role": "assistant",
+                                        "content": content,
+                                    },
+                                    "done": False,
+                                }
+                            )
+                            + "\n"
+                        )
+                    yield (
+                        json.dumps(
                             {
                                 "model": payload.model,
                                 "created_at": cached.get("created_at"),
-                                "message": {"role": "assistant", "content": content},
-                                "done": False,
+                                "message": {"role": "assistant", "content": ""},
+                                "done": True,
+                                "done_reason": cached.get("done_reason", "stop"),
                             }
-                        ) + "\n"
-                    yield json.dumps(
-                        {
-                            "model": payload.model,
-                            "created_at": cached.get("created_at"),
-                            "message": {"role": "assistant", "content": ""},
-                            "done": True,
-                            "done_reason": cached.get("done_reason", "stop"),
-                        }
-                    ) + "\n"
+                        )
+                        + "\n"
+                    )
                     request_logger.write(
                         {
                             "path": "/api/chat",
@@ -214,23 +223,28 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                 stream_collected: list[str] = []
                 try:
                     async for chunk in router.chat_stream(
-                        model_alias=payload.model, messages=messages, options=payload.options
+                        model_alias=payload.model,
+                        messages=messages,
+                        options=payload.options,
                     ):
                         if chunk["message"]["content"]:
                             stream_collected.append(chunk["message"]["content"])
                         yield json.dumps(chunk) + "\n"
                 except HTTPException as exc:
-                    yield json.dumps(
-                        {
-                            "model": payload.model,
-                            "message": {"role": "assistant", "content": ""},
-                            "done": True,
-                            "error": {
-                                "status": exc.status_code,
-                                "message": str(exc.detail),
-                            },
-                        }
-                    ) + "\n"
+                    yield (
+                        json.dumps(
+                            {
+                                "model": payload.model,
+                                "message": {"role": "assistant", "content": ""},
+                                "done": True,
+                                "error": {
+                                    "status": exc.status_code,
+                                    "message": str(exc.detail),
+                                },
+                            }
+                        )
+                        + "\n"
+                    )
                 request_logger.write(
                     {
                         "path": "/api/chat",
@@ -242,7 +256,9 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                         "client": req.client.host if req.client else None,
                         "status": 200,
                         "event": "stream_done",
-                        "response_body": {"content": "".join(stream_collected)} if runtime.log_response_body else None,
+                        "response_body": {"content": "".join(stream_collected)}
+                        if runtime.log_response_body
+                        else None,
                     }
                 )
 
@@ -254,7 +270,9 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                     "stream": True,
                     "client": req.client.host if req.client else None,
                     "event": "request_start",
-                    "request_body": payload.model_dump() if runtime.log_request_body else None,
+                    "request_body": payload.model_dump()
+                    if runtime.log_request_body
+                    else None,
                 }
             )
             return StreamingResponse(stream(), media_type="application/x-ndjson")
@@ -263,7 +281,11 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
             model_alias=payload.model, messages=messages, options=payload.options
         )
         elapsed_ms = int((time.perf_counter() - started) * 1000)
-        usage = response_payload.get("usage") if isinstance(response_payload, dict) else None
+        usage = (
+            response_payload.get("usage")
+            if isinstance(response_payload, dict)
+            else None
+        )
         request_logger.write(
             {
                 "path": "/api/chat",
@@ -282,8 +304,12 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                 "completion_tokens": (usage or {}).get("completion_tokens"),
                 "cached_tokens": cached_tokens_from_usage(usage),
                 "status": 200,
-                "response_body": response_payload if runtime.log_response_body else None,
-                "request_body": payload.model_dump() if runtime.log_request_body else None,
+                "response_body": response_payload
+                if runtime.log_response_body
+                else None,
+                "request_body": payload.model_dump()
+                if runtime.log_request_body
+                else None,
             }
         )
         return JSONResponse(response_payload)
@@ -309,23 +335,29 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                     cached = cached_entries[0]
                     response_text = cached.get("message", {}).get("content", "")
                     if response_text:
-                        yield json.dumps(
+                        yield (
+                            json.dumps(
+                                {
+                                    "model": payload.model,
+                                    "created_at": cached.get("created_at"),
+                                    "response": response_text,
+                                    "done": False,
+                                }
+                            )
+                            + "\n"
+                        )
+                    yield (
+                        json.dumps(
                             {
                                 "model": payload.model,
                                 "created_at": cached.get("created_at"),
-                                "response": response_text,
-                                "done": False,
+                                "response": "",
+                                "done": True,
+                                "done_reason": cached.get("done_reason", "stop"),
                             }
-                        ) + "\n"
-                    yield json.dumps(
-                        {
-                            "model": payload.model,
-                            "created_at": cached.get("created_at"),
-                            "response": "",
-                            "done": True,
-                            "done_reason": cached.get("done_reason", "stop"),
-                        }
-                    ) + "\n"
+                        )
+                        + "\n"
+                    )
                     request_logger.write(
                         {
                             "path": "/api/generate",
@@ -365,7 +397,9 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                 stream_collected: list[str] = []
                 try:
                     async for chunk in router.chat_stream(
-                        model_alias=payload.model, messages=messages, options=payload.options
+                        model_alias=payload.model,
+                        messages=messages,
+                        options=payload.options,
                     ):
                         output = {
                             "model": chunk["model"],
@@ -379,18 +413,21 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                             output["done_reason"] = chunk.get("done_reason", "stop")
                         yield json.dumps(output) + "\n"
                 except HTTPException as exc:
-                    yield json.dumps(
-                        {
-                            "model": payload.model,
-                            "response": "",
-                            "done": True,
-                            "done_reason": "error",
-                            "error": {
-                                "status": exc.status_code,
-                                "message": str(exc.detail),
-                            },
-                        }
-                    ) + "\n"
+                    yield (
+                        json.dumps(
+                            {
+                                "model": payload.model,
+                                "response": "",
+                                "done": True,
+                                "done_reason": "error",
+                                "error": {
+                                    "status": exc.status_code,
+                                    "message": str(exc.detail),
+                                },
+                            }
+                        )
+                        + "\n"
+                    )
                 request_logger.write(
                     {
                         "path": "/api/generate",
@@ -402,7 +439,9 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                         "client": req.client.host if req.client else None,
                         "status": 200,
                         "event": "stream_done",
-                        "response_body": {"content": "".join(stream_collected)} if runtime.log_response_body else None,
+                        "response_body": {"content": "".join(stream_collected)}
+                        if runtime.log_response_body
+                        else None,
                     }
                 )
 
@@ -414,7 +453,9 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                     "stream": True,
                     "client": req.client.host if req.client else None,
                     "event": "request_start",
-                    "request_body": payload.model_dump() if runtime.log_request_body else None,
+                    "request_body": payload.model_dump()
+                    if runtime.log_request_body
+                    else None,
                 }
             )
             return StreamingResponse(stream(), media_type="application/x-ndjson")
@@ -449,8 +490,12 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                 "completion_tokens": (usage or {}).get("completion_tokens"),
                 "cached_tokens": cached_tokens_from_usage(usage),
                 "status": 200,
-                "response_body": response_payload if runtime.log_response_body else None,
-                "request_body": payload.model_dump() if runtime.log_request_body else None,
+                "response_body": response_payload
+                if runtime.log_response_body
+                else None,
+                "request_body": payload.model_dump()
+                if runtime.log_request_body
+                else None,
             }
         )
         return JSONResponse(response_payload)
@@ -559,11 +604,15 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                     ):
                         if chunk["message"]["content"]:
                             stream_collected.append(chunk["message"]["content"])
-                        delta = chunk.get("delta") or {"content": chunk["message"]["content"]}
+                        delta = chunk.get("delta") or {
+                            "content": chunk["message"]["content"]
+                        }
                         choice = {
                             "index": 0,
                             "delta": delta,
-                            "finish_reason": chunk.get("done_reason") if chunk.get("done") else None,
+                            "finish_reason": chunk.get("done_reason")
+                            if chunk.get("done")
+                            else None,
                         }
                         chunk_payload = {
                             "id": "chatcmpl-router",
@@ -594,7 +643,9 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                         "client": req.client.host if req.client else None,
                         "status": 200,
                         "event": "stream_done",
-                        "response_body": {"content": "".join(stream_collected)} if runtime.log_response_body else None,
+                        "response_body": {"content": "".join(stream_collected)}
+                        if runtime.log_response_body
+                        else None,
                     }
                 )
 
@@ -606,7 +657,9 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                     "stream": True,
                     "client": req.client.host if req.client else None,
                     "event": "request_start",
-                    "request_body": payload.model_dump() if runtime.log_request_body else None,
+                    "request_body": payload.model_dump()
+                    if runtime.log_request_body
+                    else None,
                 }
             )
             return StreamingResponse(stream(), media_type="text/event-stream")
@@ -652,11 +705,15 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                 "latency_ms": meta.get("latency_ms", elapsed_ms),
                 "client": req.client.host if req.client else None,
                 "prompt_tokens": (response.get("usage") or {}).get("prompt_tokens"),
-                "completion_tokens": (response.get("usage") or {}).get("completion_tokens"),
+                "completion_tokens": (response.get("usage") or {}).get(
+                    "completion_tokens"
+                ),
                 "cached_tokens": cached_tokens_from_usage(response.get("usage")),
                 "status": 200,
                 "response_body": response if runtime.log_response_body else None,
-                "request_body": payload.model_dump() if runtime.log_request_body else None,
+                "request_body": payload.model_dump()
+                if runtime.log_request_body
+                else None,
             }
         )
         return JSONResponse(response)
