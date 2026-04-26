@@ -23,10 +23,40 @@ class OpenAICompatibleAdapter(ProviderAdapter):
         self.timeout = timeout
         self._client = client
 
+    def _is_go_provider(self) -> bool:
+        return "/zen/go/" in self.base_url
+
+    def _prepare_messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        # Moonshot AI and other go-provider models require non-empty reasoning_content on assistant tool-call turns.
+        if not self._is_go_provider():
+            return messages
+
+        patched: list[dict[str, Any]] = []
+        for msg in messages:
+            clone = dict(msg)
+            if (
+                clone.get("role") == "assistant"
+                and isinstance(clone.get("tool_calls"), list)
+            ):
+                # Fix missing or empty reasoning_content
+                reasoning = clone.get("reasoning_content", "")
+                if not reasoning or not reasoning.strip():
+                    content = clone.get("content")
+                    if isinstance(content, str) and content.strip():
+                        clone["reasoning_content"] = content
+                    else:
+                        clone["reasoning_content"] = "Calling tool."
+                
+                # Ensure content field exists (can be None or empty string)
+                if "content" not in clone:
+                    clone["content"] = None
+            patched.append(clone)
+        return patched
+
     async def chat_once(self, request: UpstreamProviderRequest) -> dict[str, Any]:
         payload = {
             "model": request.model,
-            "messages": request.messages,
+            "messages": self._prepare_messages(request.messages),
             "stream": False,
         }
         if request.options:
@@ -50,7 +80,7 @@ class OpenAICompatibleAdapter(ProviderAdapter):
     ) -> AsyncIterator[dict[str, Any]]:
         payload = {
             "model": request.model,
-            "messages": request.messages,
+            "messages": self._prepare_messages(request.messages),
             "stream": True,
         }
         if request.options:

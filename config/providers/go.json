@@ -4,7 +4,9 @@
       "type": "openai_compat",
       "base_url": "https://opencode.ai/zen/go/v1",
       "api_key_env": "OPENCODE_GO_API_KEY",
-      "headers": {},
+      "headers": {
+        "User-Agent": "opencode"
+      },
       "wire_format": "openai_chat",
       "timeout": 90
     }
