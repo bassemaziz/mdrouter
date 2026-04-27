@@ -36,14 +36,14 @@ Default server:
 
 ## Configure models and providers
 
-Use a central file at config/providers.json to select provider config files and enabled providers.
+Use a central file at config/providers.json to select provider config files.
 
 Current pattern:
-- config/providers.json: server, routing, provider_files, enabled_providers
+- config/providers.json: routing, provider_files
 - config/providers/novita.json: novita provider + novita models
 - config/providers/go.json: go provider + go models
 
-To enable or disable providers, edit enabled_providers in config/providers.json.
+To enable or disable providers, set ROUTER_ENABLED_PROVIDERS in .env.
 
 Set API keys in .env:
 
@@ -60,13 +60,66 @@ Each model can optionally define context_length (tokens), for example:
 "go/glm-5.1": {
   "provider": "go",
   "upstream_model": "glm-5.1",
-  "capabilities": ["chat", "stream", "tools", "vision"],
-  "context_length": 32768,
+  "capabilities": ["chat", "stream", "tools"],
+  "context_length": 202752,
   "extra": {}
 }
 ```
 
+Current `go` model metadata (from `config/providers/go.json`):
+
+| Alias | Capabilities | Context Length |
+| --- | --- | ---: |
+| go/glm-5.1 | chat, stream, tools | 202752 |
+| go/glm-5 | chat, stream, tools | 202752 |
+| go/glm-5v-turbo | chat, stream, tools, vision | 202752 |
+| go/kimi-k2.5 | chat, stream, tools, vision | 262144 |
+| go/kimi-k2.6 | chat, stream, tools, vision | 256000 |
+| go/mimo-v2-pro | chat, stream, tools | 1048576 |
+| go/mimo-v2-omni | chat, stream, tools, vision | 262144 |
+| go/mimo-v2.5-pro | chat, stream, tools | 1048576 |
+| go/mimo-v2.5 | chat, stream, tools, vision | 1048576 |
+| go/minimax-m2.5 | chat, stream, tools | 196608 |
+| go/minimax-m2.7 | chat, stream, tools | 196608 |
+| go/qwen3.5-plus | chat, stream, tools, vision | 1000000 |
+| go/qwen3.6-plus | chat, stream, tools, vision | 1000000 |
+| go/deepseek-v4-pro | chat, stream, tools | 1048576 |
+| go/deepseek-v4-flash | chat, stream, tools | 1048576 |
+
+Providers can also define optional `quirks` to enable strict upstream compatibility fixes without hard-coding provider names.
+
+Supported quirk flags:
+- `require_reasoning_content_for_tool_calls`
+- `normalize_multimodal_content`
+
+Example provider entry:
+
+```json
+"go": {
+  "type": "openai_compat",
+  "base_url": "https://opencode.ai/zen/go/v1",
+  "api_key_env": "OPENCODE_GO_API_KEY",
+  "wire_format": "openai_chat",
+  "timeout": 90,
+  "quirks": [
+    "require_reasoning_content_for_tool_calls",
+    "normalize_multimodal_content"
+  ]
+}
+```
+
 ## Runtime env vars (important)
+
+### Server and provider selection
+
+```bash
+ROUTER_HOST=127.0.0.1
+ROUTER_PORT=11435
+ROUTER_LOG_LEVEL=info
+ROUTER_REQUEST_TIMEOUT=90
+ROUTER_BIND_LOCALHOST_ONLY=true
+ROUTER_ENABLED_PROVIDERS=novita,go
+```
 
 ### Logging
 

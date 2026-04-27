@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import time
 from pathlib import Path
 from typing import Any, AsyncIterator
@@ -742,18 +741,6 @@ def main() -> None:
 
     load_env_file()
     config = AppConfig.from_file(args.config)
-    env_host = os.getenv("ROUTER_HOST")
-    env_port = os.getenv("ROUTER_PORT")
-    env_log_level = os.getenv("ROUTER_LOG_LEVEL")
-    if env_host:
-        config.server.host = env_host
-    if env_port:
-        try:
-            config.server.port = int(env_port)
-        except ValueError:
-            pass
-    if env_log_level:
-        config.server.log_level = env_log_level
     app = create_app(args.config)
 
     import uvicorn
