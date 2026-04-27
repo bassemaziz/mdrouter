@@ -11,6 +11,8 @@ from fastapi import HTTPException
 
 from mdrouter.adapters.base import ProviderAdapter
 from mdrouter.adapters.openai_compat import OpenAICompatibleAdapter
+from mdrouter.adapters.openai_compat import QUIRK_NORMALIZE_MULTIMODAL_CONTENT
+from mdrouter.adapters.openai_compat import QUIRK_REQUIRE_REASONING_CONTENT_FOR_TOOL_CALLS
 from mdrouter.config import AppConfig
 from mdrouter.config import ModelConfig
 from mdrouter.models import (
@@ -33,6 +35,57 @@ _TOOL_CALL_PATTERNS = _re.compile(
 
 def _content_has_tool_call(content_lower: str) -> bool:
     return bool(_TOOL_CALL_PATTERNS.search(content_lower))
+
+
+def _message_contains_image_input(message: dict[str, Any]) -> bool:
+    content = message.get("content")
+    if isinstance(content, dict):
+        return "image_url" in content
+    if not isinstance(content, list):
+        return False
+    for part in content:
+        if not isinstance(part, dict):
+            continue
+        if part.get("type") == "image_url" or "image_url" in part:
+            return True
+    return False
+
+
+def _messages_require_vision(messages: list[dict[str, Any]]) -> bool:
+    return any(_message_contains_image_input(message) for message in messages)
+
+
+def _normalize_multimodal_content_part(part: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(part)
+    part_type = normalized.get("type")
+    if isinstance(part_type, str) and part_type.strip():
+        return normalized
+    if "image_url" in normalized:
+        normalized["type"] = "image_url"
+    elif "text" in normalized:
+        normalized["type"] = "text"
+    return normalized
+
+
+def _normalize_message_content(message: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(message)
+    content = normalized.get("content")
+    if isinstance(content, dict):
+        normalized["content"] = [_normalize_multimodal_content_part(content)]
+        return normalized
+    if isinstance(content, list):
+        rebuilt: list[Any] = []
+        for part in content:
+            if isinstance(part, dict):
+                rebuilt.append(_normalize_multimodal_content_part(part))
+            else:
+                rebuilt.append(part)
+        normalized["content"] = rebuilt
+    return normalized
+
+
+def _normalize_messages_content(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [_normalize_message_content(message) for message in messages]
 
 
 def _inject_reasoning_content_for_tool_calls(
@@ -65,17 +118,32 @@ class ModelRouter:
         self.runtime = runtime or RuntimeSettings.from_env()
         self.response_cache = build_response_cache(self.runtime)
         self.adapters: dict[str, ProviderAdapter] = {}
+        self.provider_quirks: dict[str, frozenset[str]] = {}
         self._build_adapters()
+
+    @staticmethod
+    def _default_provider_quirks(provider_name: str) -> set[str]:
+        if provider_name == "go":
+            return {
+                QUIRK_REQUIRE_REASONING_CONTENT_FOR_TOOL_CALLS,
+                QUIRK_NORMALIZE_MULTIMODAL_CONTENT,
+            }
+        return set()
 
     def _build_adapters(self) -> None:
         for provider_name, provider_cfg in self.config.providers.items():
             if provider_cfg.type != "openai_compat":
                 raise ValueError(f"Unsupported provider type '{provider_cfg.type}'.")
             timeout = provider_cfg.timeout or self.config.server.request_timeout
+            quirks = self._default_provider_quirks(provider_name).union(
+                provider_cfg.quirks
+            )
+            self.provider_quirks[provider_name] = frozenset(quirks)
             self.adapters[provider_name] = OpenAICompatibleAdapter(
                 base_url=provider_cfg.base_url,
                 headers=provider_cfg.resolve_headers(allow_missing_api_key=True),
                 timeout=timeout,
+                quirks=quirks,
             )
 
     def lookup_model_config(self, model_name: str) -> tuple[str, ModelConfig]:
@@ -190,9 +258,18 @@ class ModelRouter:
         stream: bool,
         options: dict[str, Any] | None,
     ) -> tuple[ProviderAdapter, UpstreamProviderRequest, str]:
+        mutable_messages = _normalize_messages_content(messages)
+        _, model_cfg = self.lookup_model_config(model_alias)
+        if "vision" not in model_cfg.capabilities and _messages_require_vision(
+            mutable_messages
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Model '{model_alias}' does not support vision content.",
+            )
+
         adapter, upstream_model, provider_name = self._resolve_model(model_alias)
         mutable_options = dict(options or {})
-        mutable_messages = list(messages)
 
         if (
             self.runtime.prompt_cache_key_enabled
@@ -206,7 +283,8 @@ class ModelRouter:
             mutable_options["prompt_cache_retention"] = (
                 self.runtime.prompt_cache_retention
             )
-        if provider_name == "go":
+        provider_quirks = self.provider_quirks.get(provider_name, frozenset())
+        if QUIRK_REQUIRE_REASONING_CONTENT_FOR_TOOL_CALLS in provider_quirks:
             mutable_messages = _inject_reasoning_content_for_tool_calls(
                 mutable_messages
             )

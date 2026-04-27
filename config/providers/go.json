@@ -8,106 +8,117 @@
         "User-Agent": "opencode"
       },
       "wire_format": "openai_chat",
-      "timeout": 90
+      "timeout": 90,
+      "quirks": [
+        "require_reasoning_content_for_tool_calls",
+        "normalize_multimodal_content"
+      ]
     }
   },
   "models": {
     "go/glm-5.1": {
       "provider": "go",
       "upstream_model": "glm-5.1",
-      "capabilities": ["chat", "stream", "tools", "vision"],
-      "context_length": 128000,
+      "capabilities": ["chat", "stream", "tools"],
+      "context_length": 202752,
       "extra": {}
     },
     "go/glm-5": {
       "provider": "go",
       "upstream_model": "glm-5",
+      "capabilities": ["chat", "stream", "tools"],
+      "context_length": 202752,
+      "extra": {}
+    },
+    "go/glm-5v-turbo": {
+      "provider": "go",
+      "upstream_model": "glm-5v-turbo",
       "capabilities": ["chat", "stream", "tools", "vision"],
-      "context_length": 32768,
+      "context_length": 202752,
       "extra": {}
     },
     "go/kimi-k2.5": {
       "provider": "go",
       "upstream_model": "kimi-k2.5",
       "capabilities": ["chat", "stream", "tools", "vision"],
-      "context_length": 65536,
+      "context_length": 262144,
       "extra": {}
     },
     "go/kimi-k2.6": {
       "provider": "go",
       "upstream_model": "kimi-k2.6",
       "capabilities": ["chat", "stream", "tools", "vision"],
-      "context_length": 65536,
+      "context_length": 256000,
       "extra": {}
     },
     "go/mimo-v2-pro": {
       "provider": "go",
       "upstream_model": "mimo-v2-pro",
-      "capabilities": ["chat", "stream", "tools", "vision"],
-      "context_length": 32768,
+      "capabilities": ["chat", "stream", "tools"],
+      "context_length": 1048576,
       "extra": {}
     },
     "go/mimo-v2-omni": {
       "provider": "go",
       "upstream_model": "mimo-v2-omni",
       "capabilities": ["chat", "stream", "tools", "vision"],
-      "context_length": 32768,
+      "context_length": 262144,
       "extra": {}
     },
     "go/mimo-v2.5-pro": {
       "provider": "go",
       "upstream_model": "mimo-v2.5-pro",
-      "capabilities": ["chat", "stream", "tools", "vision"],
-      "context_length": 32768,
+      "capabilities": ["chat", "stream", "tools"],
+      "context_length": 1048576,
       "extra": {}
     },
     "go/mimo-v2.5": {
       "provider": "go",
       "upstream_model": "mimo-v2.5",
       "capabilities": ["chat", "stream", "tools", "vision"],
-      "context_length": 32768,
+      "context_length": 1048576,
       "extra": {}
     },
     "go/minimax-m2.5": {
       "provider": "go",
       "upstream_model": "minimax-m2.5",
-      "capabilities": ["chat", "stream", "tools", "vision"],
-      "context_length": 64000,
+      "capabilities": ["chat", "stream", "tools"],
+      "context_length": 196608,
       "extra": {}
     },
     "go/minimax-m2.7": {
       "provider": "go",
       "upstream_model": "minimax-m2.7",
-      "capabilities": ["chat", "stream", "tools", "vision"],
-      "context_length": 64000,
+      "capabilities": ["chat", "stream", "tools"],
+      "context_length": 196608,
       "extra": {}
     },
     "go/qwen3.5-plus": {
       "provider": "go",
       "upstream_model": "qwen3.5-plus",
       "capabilities": ["chat", "stream", "tools", "vision"],
-      "context_length": 32768,
+      "context_length": 1000000,
       "extra": {}
     },
     "go/qwen3.6-plus": {
       "provider": "go",
       "upstream_model": "qwen3.6-plus",
       "capabilities": ["chat", "stream", "tools", "vision"],
-      "context_length": 32768,
+      "context_length": 1000000,
       "extra": {}
     },
     "go/deepseek-v4-pro": {
       "provider": "go",
       "upstream_model": "deepseek-v4-pro",
-      "capabilities": ["chat", "stream", "tools", "vision"],
-      "context_length": 32768,
+      "capabilities": ["chat", "stream", "tools"],
+      "context_length": 1048576,
       "extra": {}
     },
     "go/deepseek-v4-flash": {
       "provider": "go",
       "upstream_model": "deepseek-v4-flash",
-      "capabilities": ["chat", "stream", "tools", "vision"],
-      "context_length": 32768,
+      "capabilities": ["chat", "stream", "tools"],
+      "context_length": 1048576,
       "extra": {}
     }
   }

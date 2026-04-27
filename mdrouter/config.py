@@ -8,6 +8,41 @@ from typing import Any
 from pydantic import BaseModel, Field, model_validator
 
 
+def _env_bool(name: str) -> bool | None:
+    value = os.getenv(name)
+    if value is None:
+        return None
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_int(name: str) -> int | None:
+    value = os.getenv(name)
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
+def _env_float(name: str) -> float | None:
+    value = os.getenv(name)
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
+def _env_csv_set(name: str) -> set[str] | None:
+    value = os.getenv(name)
+    if value is None:
+        return None
+    items = {item.strip() for item in value.split(",") if item.strip()}
+    return items
+
+
 class ServerConfig(BaseModel):
     host: str = "127.0.0.1"
     port: int = 11435
@@ -23,6 +58,7 @@ class ProviderConfig(BaseModel):
     headers: dict[str, str] = Field(default_factory=dict)
     wire_format: str = "openai_chat"
     timeout: float | None = None
+    quirks: set[str] = Field(default_factory=set)
 
     def resolve_headers(self, *, allow_missing_api_key: bool = True) -> dict[str, str]:
         result = dict(self.headers)
@@ -80,6 +116,27 @@ class AppConfig(BaseModel):
         with config_path.open("r", encoding="utf-8") as f:
             payload = json.load(f)
 
+        server_payload = payload.get("server") or {}
+        if not isinstance(server_payload, dict):
+            raise ValueError("'server' must be an object.")
+
+        env_host = os.getenv("ROUTER_HOST")
+        if env_host:
+            server_payload["host"] = env_host
+        env_port = _env_int("ROUTER_PORT")
+        if env_port is not None:
+            server_payload["port"] = env_port
+        env_log_level = os.getenv("ROUTER_LOG_LEVEL")
+        if env_log_level:
+            server_payload["log_level"] = env_log_level
+        env_request_timeout = _env_float("ROUTER_REQUEST_TIMEOUT")
+        if env_request_timeout is not None:
+            server_payload["request_timeout"] = env_request_timeout
+        env_bind_localhost_only = _env_bool("ROUTER_BIND_LOCALHOST_ONLY")
+        if env_bind_localhost_only is not None:
+            server_payload["bind_localhost_only"] = env_bind_localhost_only
+        payload["server"] = server_payload
+
         provider_files = payload.pop("provider_files", [])
         if provider_files is None:
             provider_files = []
@@ -98,6 +155,10 @@ class AppConfig(BaseModel):
                 for name in enabled_providers
                 if isinstance(name, str) and name.strip()
             }
+
+        env_enabled_set = _env_csv_set("ROUTER_ENABLED_PROVIDERS")
+        if env_enabled_set is not None:
+            enabled_set = env_enabled_set
 
         merged_providers: dict[str, Any] = dict(payload.get("providers") or {})
         merged_models: dict[str, Any] = dict(payload.get("models") or {})

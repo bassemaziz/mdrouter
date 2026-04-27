@@ -1,16 +1,8 @@
 {
-  "server": {
-    "host": "127.0.0.1",
-    "port": 11435,
-    "log_level": "info",
-    "request_timeout": 90,
-    "bind_localhost_only": true
-  },
   "provider_files": [
     "providers/novita.json",
     "providers/go.json"
   ],
-  "enabled_providers": ["novita", "go"],
   "routing": {
     "strict_provider_prefix": true,
     "unknown_model_behavior": "error"
