@@ -111,6 +111,8 @@ class OpenAICompatibleAdapter(ProviderAdapter):
             "messages": prepared_messages,
             "stream": stream,
         }
+        if stream:
+            payload["stream_options"] = {"include_usage": True}
         if request.options:
             # Preserve canonical transport keys even if callers pass them in options.
             payload.update(
