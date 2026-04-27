@@ -190,6 +190,7 @@ class ModelRouter:
                         "general.basename": model_cfg.upstream_model.split("/")[-1],
                         "general.architecture": "router",
                         "router.context_length": model_cfg.context_length,
+                        "llama.context_length": model_cfg.context_length,
                     },
                     supports={
                         "vision": "vision" in model_cfg.capabilities,
@@ -436,9 +437,15 @@ class ModelRouter:
         collected: list[str] = []
         has_tool_calls = False
         saw_done = False
+        upstream_usage: dict[str, Any] | None = None
+        pending_done_chunk: dict[str, Any] | None = None
         try:
             async for upstream_chunk in adapter.chat_stream(provider_req):
                 choices = upstream_chunk.get("choices") or []
+                # Capture usage from any chunk (providers may send it in a final
+                # usage-only chunk with empty choices, or alongside finish_reason).
+                if isinstance(upstream_chunk.get("usage"), dict):
+                    upstream_usage = upstream_chunk["usage"]
                 if choices:
                     delta = choices[0].get("delta") or {}
                     if delta.get("tool_calls"):
@@ -448,6 +455,10 @@ class ModelRouter:
                 )
                 if chunk.get("done"):
                     saw_done = True
+                    # Buffer the done chunk so we can attach usage after all
+                    # upstream chunks (including the usage-only chunk) arrive.
+                    pending_done_chunk = chunk
+                    continue
                 content = chunk["message"]["content"]
                 delta = chunk.get("delta") or {}
                 has_emittable_delta = bool(
@@ -456,7 +467,7 @@ class ModelRouter:
                 if content:
                     content_sent = True
                     collected.append(content)
-                if has_emittable_delta or chunk.get("done"):
+                if has_emittable_delta:
                     yield chunk
         except httpx.TimeoutException as exc:
             raise HTTPException(
@@ -501,8 +512,15 @@ class ModelRouter:
                     messages=messages,
                     response=payload,
                 )
-            if not saw_done:
-                yield done_chunk(model_alias=model_alias, had_content=content_sent)
+            if saw_done and pending_done_chunk is not None:
+                # Attach usage collected after the done chunk was buffered.
+                if isinstance(upstream_usage, dict):
+                    pending_done_chunk["usage"] = upstream_usage
+                    pending_done_chunk["prompt_eval_count"] = upstream_usage.get("prompt_tokens", 0)
+                    pending_done_chunk["eval_count"] = upstream_usage.get("completion_tokens", 0)
+                yield pending_done_chunk
+            elif not saw_done:
+                yield done_chunk(model_alias=model_alias, had_content=content_sent, usage=upstream_usage)
 
 
 def normalize_chat_non_stream(
@@ -531,6 +549,8 @@ def normalize_chat_non_stream(
     usage = upstream.get("usage")
     if isinstance(usage, dict):
         payload["usage"] = usage
+        payload["prompt_eval_count"] = usage.get("prompt_tokens", 0)
+        payload["eval_count"] = usage.get("completion_tokens", 0)
     return payload
 
 
@@ -554,14 +574,24 @@ def normalize_chat_stream_chunk(
     }
     if finish_reason is not None:
         payload["done_reason"] = finish_reason
+    usage = upstream.get("usage")
+    if isinstance(usage, dict) and finish_reason is not None:
+        payload["usage"] = usage
+        payload["prompt_eval_count"] = usage.get("prompt_tokens", 0)
+        payload["eval_count"] = usage.get("completion_tokens", 0)
     return payload
 
 
-def done_chunk(*, model_alias: str, had_content: bool) -> dict[str, Any]:
-    return {
+def done_chunk(*, model_alias: str, had_content: bool, usage: dict[str, Any] | None = None) -> dict[str, Any]:
+    payload: dict[str, Any] = {
         "model": model_alias,
         "created_at": datetime.now(UTC).isoformat(),
         "message": {"role": "assistant", "content": "" if had_content else " "},
         "done": True,
         "done_reason": "stop",
     }
+    if isinstance(usage, dict):
+        payload["usage"] = usage
+        payload["prompt_eval_count"] = usage.get("prompt_tokens", 0)
+        payload["eval_count"] = usage.get("completion_tokens", 0)
+    return payload

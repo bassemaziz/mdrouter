@@ -512,6 +512,7 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                     "general.basename": request.model,
                     "general.architecture": "router",
                     "router.context_length": 32768,
+                    "llama.context_length": 32768,
                 },
             }
 
@@ -531,6 +532,7 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                 "general.basename": basename,
                 "general.architecture": "router",
                 "router.context_length": model_cfg.context_length,
+                "llama.context_length": model_cfg.context_length,
             },
         }
 
@@ -595,6 +597,7 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                     }
                 )
                 stream_collected: list[str] = []
+                stream_usage: dict[str, Any] | None = None
                 try:
                     async for chunk in router.chat_stream(
                         model_alias=payload.model,
@@ -603,6 +606,8 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                     ):
                         if chunk["message"]["content"]:
                             stream_collected.append(chunk["message"]["content"])
+                        if isinstance(chunk.get("usage"), dict):
+                            stream_usage = chunk["usage"]
                         delta = chunk.get("delta") or {
                             "content": chunk["message"]["content"]
                         }
@@ -621,6 +626,18 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                             "choices": [choice],
                         }
                         yield f"data: {json.dumps(chunk_payload)}\n\n"
+                        # Emit a separate usage-only chunk (OpenAI spec: choices=[])
+                        # after the finish_reason chunk so all clients see it.
+                        if chunk.get("done") and isinstance(chunk.get("usage"), dict):
+                            usage_payload = {
+                                "id": "chatcmpl-router",
+                                "object": "chat.completion.chunk",
+                                "created": 0,
+                                "model": payload.model,
+                                "choices": [],
+                                "usage": chunk["usage"],
+                            }
+                            yield f"data: {json.dumps(usage_payload)}\n\n"
                 except HTTPException as exc:
                     error_message = f"[upstream_error:{exc.status_code}] {exc.detail}"
                     chunk_payload = {
@@ -652,6 +669,9 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                         "client": req.client.host if req.client else None,
                         "status": 200,
                         "event": "stream_done",
+                        "prompt_tokens": (stream_usage or {}).get("prompt_tokens"),
+                        "completion_tokens": (stream_usage or {}).get("completion_tokens"),
+                        "cached_tokens": cached_tokens_from_usage(stream_usage),
                         "response_body": {"content": "".join(stream_collected)}
                         if runtime.log_response_body
                         else None,
