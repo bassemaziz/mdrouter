@@ -18,7 +18,8 @@ def test_provider_prefix_validation():
         AppConfig.model_validate(payload)
 
 
-def test_from_file_merges_provider_files_and_filters_enabled(tmp_path):
+def test_from_file_merges_provider_files_and_filters_enabled(tmp_path, monkeypatch):
+    monkeypatch.delenv("ROUTER_ENABLED_PROVIDERS", raising=False)
     novita_file = tmp_path / "novita.json"
     novita_file.write_text(
         """

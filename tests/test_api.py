@@ -319,3 +319,75 @@ def test_v1_chat_completions_stream_upstream_http_error_emits_choices_chunk(tmp_
     assert "upstream_error" in (events[0]["choices"][0]["delta"] or {}).get(
         "content", ""
     )
+
+
+@respx.mock
+def test_v1_chat_completions_auto_non_stream_uses_upstream_model_name(tmp_path):
+    respx.post("http://upstream.test/v1/chat/completions").mock(
+        return_value=Response(
+            200,
+            json={
+                "id": "x",
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": "auto response",
+                        }
+                    }
+                ],
+            },
+        )
+    )
+
+    app = create_app(_write_config(tmp_path))
+    client = TestClient(app)
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "mdrouter/auto",
+            "messages": [{"role": "user", "content": "hello"}],
+            "stream": False,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["model"] == "demo-upstream"
+
+
+@respx.mock
+def test_v1_chat_completions_auto_stream_uses_upstream_model_name(tmp_path):
+    sse = (
+        'data: {"choices":[{"delta":{"content":"Hello"}}]}\n\n'
+        'data: {"choices":[{"delta":{"content":" world"}}]}\n\n'
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}}\n\n'
+        "data: [DONE]\n\n"
+    )
+    respx.post("http://upstream.test/v1/chat/completions").mock(
+        return_value=Response(200, text=sse)
+    )
+
+    app = create_app(_write_config(tmp_path))
+    client = TestClient(app)
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "mdrouter/auto",
+            "messages": [{"role": "user", "content": "hello"}],
+            "stream": True,
+        },
+    )
+
+    assert response.status_code == 200
+    models: list[str] = []
+    for line in response.text.splitlines():
+        if not line.startswith("data: "):
+            continue
+        data = line[6:]
+        if data == "[DONE]":
+            continue
+        payload = json.loads(data)
+        if isinstance(payload.get("model"), str):
+            models.append(payload["model"])
+    assert models
+    assert all(model_name == "demo-upstream" for model_name in models)

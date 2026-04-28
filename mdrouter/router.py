@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import time
 from datetime import UTC, datetime
+from threading import Lock
 from typing import Any, AsyncIterator
 
 import httpx
@@ -23,6 +25,9 @@ from mdrouter.runtime import build_response_cache
 from mdrouter.runtime import RuntimeSettings
 
 import re as _re
+
+_AUTO_MODEL_ALIAS = "mdrouter/auto"
+_AUTO_FALLBACK_CONTEXT_LENGTH = 1_048_576
 
 _TOOL_CALL_PATTERNS = _re.compile(
     r"<tool[_\s/]"  # XML: <tool_call>, <tool >, </tool>
@@ -119,6 +124,8 @@ class ModelRouter:
         self.response_cache = build_response_cache(self.runtime)
         self.adapters: dict[str, ProviderAdapter] = {}
         self.provider_quirks: dict[str, frozenset[str]] = {}
+        self._auto_rr_lock = Lock()
+        self._auto_rr_index = 0
         self._build_adapters()
 
     @staticmethod
@@ -150,6 +157,14 @@ class ModelRouter:
         direct = self.config.models.get(model_name)
         if direct:
             return model_name, direct
+
+        if model_name == _AUTO_MODEL_ALIAS:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Virtual model 'mdrouter/auto' must be resolved at request time."
+                ),
+            )
 
         if "/" not in model_name:
             suffix = f"/{model_name}"
@@ -206,7 +221,316 @@ class ModelRouter:
                     },
                 )
             )
+
+        auto_digest = hashlib.sha256(_AUTO_MODEL_ALIAS.encode("utf-8")).hexdigest()
+        auto_context_length = self.auto_context_length()
+        result.append(
+            OllamaTagModel(
+                name=_AUTO_MODEL_ALIAS,
+                model=_AUTO_MODEL_ALIAS,
+                modified_at=now,
+                size=0,
+                digest=f"sha256:{auto_digest}",
+                capabilities=["vision", "tools"],
+                model_info={
+                    "general.basename": "MDAuto",
+                    "general.architecture": "router",
+                    "router.context_length": auto_context_length,
+                    "llama.context_length": auto_context_length,
+                },
+                supports={"vision": True, "tool_calls": True},
+                details={
+                    "format": "router",
+                    "family": "router",
+                    "families": ["router"],
+                    "parameter_size": "virtual",
+                    "quantization_level": "virtual",
+                    "capabilities": ["vision", "tools"],
+                },
+            )
+        )
         return result
+
+    @staticmethod
+    def _env_csv(name: str) -> list[str]:
+        value = os.getenv(name, "").strip()
+        if not value:
+            return []
+        return [item.strip() for item in value.split(",") if item.strip()]
+
+    @staticmethod
+    def _dedupe(values: list[str]) -> list[str]:
+        seen: set[str] = set()
+        result: list[str] = []
+        for value in values:
+            if value in seen:
+                continue
+            seen.add(value)
+            result.append(value)
+        return result
+
+    def auto_context_length(self) -> int:
+        override = os.getenv("ROUTER_AUTO_CONTEXT_LENGTH", "").strip()
+        if override:
+            try:
+                parsed = int(override)
+            except ValueError:
+                parsed = 0
+            if parsed > 0:
+                return parsed
+
+        tool_contexts = [
+            cfg.context_length
+            for cfg in self.config.models.values()
+            if "tools" in set(cfg.capabilities)
+        ]
+        if tool_contexts:
+            return max(tool_contexts)
+
+        all_contexts = [cfg.context_length for cfg in self.config.models.values()]
+        if all_contexts:
+            return max(all_contexts)
+
+        return _AUTO_FALLBACK_CONTEXT_LENGTH
+
+    @staticmethod
+    def _user_text(messages: list[dict[str, Any]]) -> str:
+        chunks: list[str] = []
+        for message in messages:
+            if str(message.get("role")) != "user":
+                continue
+            content = message.get("content")
+            if isinstance(content, str):
+                chunks.append(content)
+            elif isinstance(content, list):
+                for part in content:
+                    if isinstance(part, dict) and isinstance(part.get("text"), str):
+                        chunks.append(part["text"])
+        return "\n".join(chunks)
+
+    @staticmethod
+    def _input_chars(messages: list[dict[str, Any]]) -> int:
+        total = 0
+        for message in messages:
+            content = message.get("content", "")
+            if isinstance(content, str):
+                total += len(content)
+            elif isinstance(content, (list, dict)):
+                total += len(str(content))
+            else:
+                total += len(str(content))
+        return total
+
+    @staticmethod
+    def _request_has_tools(
+        messages: list[dict[str, Any]], options: dict[str, Any] | None
+    ) -> bool:
+        if isinstance(options, dict) and isinstance(options.get("tools"), list):
+            return True
+        for message in messages:
+            if isinstance(message.get("tool_calls"), list):
+                return True
+        return False
+
+    def _auto_request_class(
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        options: dict[str, Any] | None,
+    ) -> str:
+        if self._request_has_tools(messages, options):
+            return "tool_heavy"
+
+        message_count = len(messages)
+        input_chars = self._input_chars(messages)
+        if message_count >= 16 or input_chars >= 12000:
+            return "long_context"
+
+        user_text = self._user_text(messages).lower()
+        if re.search(r"\b(refactor|rewrite|migrate|re-architect|rearchitect)\b", user_text):
+            return "heavy_refactor"
+
+        return "default_coding"
+
+    def _auto_configured_candidates(
+        self,
+        request_class_tag: str,
+        *,
+        require_vision: bool,
+    ) -> list[str]:
+        if request_class_tag == "tool_heavy":
+            primary = self._env_csv("ROUTER_AUTO_TOOL_HEAVY_CANDIDATES")
+        elif request_class_tag == "long_context":
+            primary = self._env_csv("ROUTER_AUTO_LONG_CONTEXT_CANDIDATES")
+        elif request_class_tag == "heavy_refactor":
+            primary = self._env_csv("ROUTER_AUTO_HEAVY_REFACTOR_CANDIDATES")
+        else:
+            primary = self._env_csv("ROUTER_AUTO_DEFAULT_CANDIDATES")
+
+        free_pool = self._env_csv("ROUTER_AUTO_FREE_CANDIDATES")
+        free_vision_pool = self._env_csv("ROUTER_AUTO_FREE_VISION_CANDIDATES")
+        if request_class_tag == "default_coding":
+            if require_vision:
+                return self._dedupe(free_vision_pool + free_pool + primary)
+            return self._dedupe(free_pool + primary)
+        if require_vision:
+            return self._dedupe(free_vision_pool + primary)
+        return self._dedupe(primary)
+
+    @staticmethod
+    def _is_free_model_alias(alias: str, cfg: ModelConfig) -> bool:
+        tier = str((cfg.extra or {}).get("tier") or "").strip().lower()
+        if tier == "free":
+            return True
+        alias_l = alias.lower()
+        return alias_l.endswith("-free") or "-free-" in alias_l
+
+    @staticmethod
+    def _auto_policy(options: dict[str, Any] | None) -> str:
+        if isinstance(options, dict) and options.get("router_policy") is not None:
+            value = str(options.get("router_policy") or "").strip().lower()
+        else:
+            value = os.getenv("ROUTER_AUTO_POLICY", "balanced").strip().lower()
+        if value in {"cost_first", "balanced", "quality_first", "fastest"}:
+            return value
+        return "balanced"
+
+    @staticmethod
+    def _auto_free_strategy() -> str:
+        value = os.getenv("ROUTER_AUTO_FREE_STRATEGY", "round_robin").strip().lower()
+        if value in {"round_robin", "first"}:
+            return value
+        return "round_robin"
+
+    def _next_round_robin(self, candidates: list[str]) -> str:
+        if not candidates:
+            raise ValueError("candidates must be non-empty")
+        with self._auto_rr_lock:
+            selected = candidates[self._auto_rr_index % len(candidates)]
+            self._auto_rr_index += 1
+        return selected
+
+    def _auto_derived_candidates(
+        self,
+        *,
+        request_class_tag: str,
+        require_tools: bool,
+        require_vision: bool,
+        policy: str,
+    ) -> list[str]:
+        scored: list[tuple[float, str]] = []
+        for alias, cfg in self.config.models.items():
+            caps = set(cfg.capabilities)
+            if require_tools and "tools" not in caps:
+                continue
+            if require_vision and "vision" not in caps:
+                continue
+
+            alias_l = alias.lower()
+            score = 0.0
+            if self._is_free_model_alias(alias, cfg):
+                score += 40.0
+            if "flash" in alias_l:
+                score += 8.0
+            if "tools" in caps:
+                score += 5.0
+            if "vision" in caps and require_vision:
+                score += 5.0
+            score += min(float(cfg.context_length) / 250000.0, 8.0)
+
+            if request_class_tag == "long_context":
+                score += min(float(cfg.context_length) / 100000.0, 20.0)
+            elif request_class_tag == "heavy_refactor":
+                if any(token in alias_l for token in ("qwen", "deepseek", "glm", "kimi")):
+                    score += 6.0
+            elif request_class_tag == "default_coding" and "nano" in alias_l:
+                score += 6.0
+
+            if policy == "cost_first":
+                if self._is_free_model_alias(alias, cfg):
+                    score += 30.0
+            elif policy == "quality_first":
+                score += min(float(cfg.context_length) / 100000.0, 10.0)
+                if any(token in alias_l for token in ("opus", "pro", "max", "qwen", "deepseek")):
+                    score += 8.0
+
+            scored.append((score, alias))
+
+        scored.sort(key=lambda item: (-item[0], item[1]))
+        return [alias for _, alias in scored]
+
+    def _resolve_runtime_alias(
+        self,
+        *,
+        model_alias: str,
+        messages: list[dict[str, Any]],
+        options: dict[str, Any] | None,
+    ) -> tuple[str, str]:
+        if model_alias != _AUTO_MODEL_ALIAS:
+            return model_alias, "explicit"
+
+        require_vision = _messages_require_vision(messages)
+        require_tools = self._request_has_tools(messages, options)
+        request_class_tag = self._auto_request_class(messages=messages, options=options)
+        policy = self._auto_policy(options)
+
+        configured = self._auto_configured_candidates(
+            request_class_tag,
+            require_vision=require_vision,
+        )
+        valid_configured: list[str] = []
+        for alias in configured:
+            cfg = self.config.models.get(alias)
+            if cfg is None:
+                continue
+            caps = set(cfg.capabilities)
+            if require_tools and "tools" not in caps:
+                continue
+            if require_vision and "vision" not in caps:
+                continue
+            valid_configured.append(alias)
+
+        if valid_configured:
+            if request_class_tag == "default_coding" and policy == "cost_first":
+                free_only = [
+                    alias
+                    for alias in valid_configured
+                    if self._is_free_model_alias(alias, self.config.models[alias])
+                ]
+                if free_only:
+                    strategy = self._auto_free_strategy()
+                    if strategy == "round_robin":
+                        return self._next_round_robin(free_only), request_class_tag
+                    return free_only[0], request_class_tag
+            return valid_configured[0], request_class_tag
+
+        derived = self._auto_derived_candidates(
+            request_class_tag=request_class_tag,
+            require_tools=require_tools,
+            require_vision=require_vision,
+            policy=policy,
+        )
+        if derived:
+            if request_class_tag == "default_coding" and policy == "cost_first":
+                free_derived = [
+                    alias
+                    for alias in derived
+                    if self._is_free_model_alias(alias, self.config.models[alias])
+                ]
+                if free_derived:
+                    strategy = self._auto_free_strategy()
+                    if strategy == "round_robin":
+                        return self._next_round_robin(free_derived), request_class_tag
+                    return free_derived[0], request_class_tag
+            return derived[0], request_class_tag
+
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "No eligible model found for virtual alias 'mdrouter/auto'. "
+                "Configure ROUTER_AUTO_*_CANDIDATES with valid model aliases."
+            ),
+        )
 
     def _resolve_model(self, alias: str) -> tuple[ProviderAdapter, str, str]:
         _, model_cfg = self.lookup_model_config(alias)
@@ -258,25 +582,34 @@ class ModelRouter:
         messages: list[dict[str, Any]],
         stream: bool,
         options: dict[str, Any] | None,
+        resolved_alias: str | None = None,
     ) -> tuple[ProviderAdapter, UpstreamProviderRequest, str]:
         mutable_messages = _normalize_messages_content(messages)
-        _, model_cfg = self.lookup_model_config(model_alias)
+        effective_alias = resolved_alias
+        if effective_alias is None:
+            effective_alias, _ = self._resolve_runtime_alias(
+                model_alias=model_alias,
+                messages=messages,
+                options=options,
+            )
+
+        _, model_cfg = self.lookup_model_config(effective_alias)
         if "vision" not in model_cfg.capabilities and _messages_require_vision(
             mutable_messages
         ):
             raise HTTPException(
                 status_code=400,
-                detail=f"Model '{model_alias}' does not support vision content.",
+                detail=f"Model '{effective_alias}' does not support vision content.",
             )
 
-        adapter, upstream_model, provider_name = self._resolve_model(model_alias)
+        adapter, upstream_model, provider_name = self._resolve_model(effective_alias)
         mutable_options = dict(options or {})
 
         if (
             self.runtime.prompt_cache_key_enabled
             and "prompt_cache_key" not in mutable_options
         ):
-            mutable_options["prompt_cache_key"] = f"router:{model_alias}"
+            mutable_options["prompt_cache_key"] = f"router:{effective_alias}"
         if (
             self.runtime.prompt_cache_retention
             and "prompt_cache_retention" not in mutable_options
@@ -310,11 +643,20 @@ class ModelRouter:
         messages: list[dict[str, Any]],
         options: dict[str, Any] | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
+        resolved_alias, request_class_tag = self._resolve_runtime_alias(
+            model_alias=model_alias,
+            messages=messages,
+            options=options,
+        )
         adapter, provider_req, provider_name = self._to_provider_request(
-            model_alias=model_alias, messages=messages, stream=False, options=options
+            model_alias=model_alias,
+            messages=messages,
+            stream=False,
+            options=options,
+            resolved_alias=resolved_alias,
         )
         exact_key = self.response_cache.make_exact_key(
-            model_alias=model_alias,
+            model_alias=resolved_alias,
             provider=provider_name,
             messages=messages,
             options=options,
@@ -322,7 +664,7 @@ class ModelRouter:
         if self.runtime.cache_enabled:
             cached, cache_meta = await self.response_cache.lookup(
                 exact_key=exact_key,
-                model_alias=model_alias,
+                model_alias=resolved_alias,
                 provider=provider_name,
                 messages=messages,
             )
@@ -330,6 +672,8 @@ class ModelRouter:
                 return cached, {
                     "provider": provider_name,
                     "upstream_model": provider_req.model,
+                    "routed_model_alias": resolved_alias,
+                    "request_class_tag": request_class_tag,
                     "cache_backend": self.response_cache.backend_name,
                     "cache_hit": cache_meta["cache_hit"],
                     "similarity": cache_meta["similarity"],
@@ -372,7 +716,7 @@ class ModelRouter:
         ):
             await self.response_cache.store(
                 exact_key=exact_key,
-                model_alias=model_alias,
+                model_alias=resolved_alias,
                 provider=provider_name,
                 messages=messages,
                 response=payload,
@@ -380,6 +724,8 @@ class ModelRouter:
         return payload, {
             "provider": provider_name,
             "upstream_model": provider_req.model,
+            "routed_model_alias": resolved_alias,
+            "request_class_tag": request_class_tag,
             "cache_backend": self.response_cache.backend_name,
             "cache_hit": "upstream",
             "similarity": 0.0,
@@ -395,11 +741,20 @@ class ModelRouter:
         messages: list[dict[str, Any]],
         options: dict[str, Any] | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
+        resolved_alias, _ = self._resolve_runtime_alias(
+            model_alias=model_alias,
+            messages=messages,
+            options=options,
+        )
         adapter, provider_req, provider_name = self._to_provider_request(
-            model_alias=model_alias, messages=messages, stream=True, options=options
+            model_alias=model_alias,
+            messages=messages,
+            stream=True,
+            options=options,
+            resolved_alias=resolved_alias,
         )
         exact_key = self.response_cache.make_exact_key(
-            model_alias=model_alias,
+            model_alias=resolved_alias,
             provider=provider_name,
             messages=messages,
             options=options,
@@ -407,7 +762,7 @@ class ModelRouter:
         if self.runtime.cache_enabled:
             cached, _ = await self.response_cache.lookup(
                 exact_key=exact_key,
-                model_alias=model_alias,
+                model_alias=resolved_alias,
                 provider=provider_name,
                 messages=messages,
             )
@@ -507,7 +862,7 @@ class ModelRouter:
                 }
                 await self.response_cache.store(
                     exact_key=exact_key,
-                    model_alias=model_alias,
+                    model_alias=resolved_alias,
                     provider=provider_name,
                     messages=messages,
                     response=payload,
