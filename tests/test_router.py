@@ -41,6 +41,20 @@ def _config() -> AppConfig:
             },
         },
         "models": {
+            "go/free-a": {
+                "provider": "go",
+                "upstream_model": "free-a",
+                "capabilities": ["chat", "stream", "tools"],
+                "context_length": 65536,
+                "extra": {"tier": "free"},
+            },
+            "go/free-b": {
+                "provider": "go",
+                "upstream_model": "free-b",
+                "capabilities": ["chat", "stream", "tools"],
+                "context_length": 65536,
+                "extra": {"tier": "free"},
+            },
             "go/kimi-k2.6": {
                 "provider": "go",
                 "upstream_model": "kimi-k2.6",
@@ -202,3 +216,120 @@ def test_router_normalizes_dict_image_content_before_provider_request():
     content = req.messages[0]["content"]
     assert isinstance(content, list)
     assert content[0]["type"] == "image_url"
+
+
+def test_auto_model_uses_configured_default_candidates(monkeypatch):
+    monkeypatch.setenv("ROUTER_AUTO_DEFAULT_CANDIDATES", "novita/demo-model,go/kimi-k2.6")
+    router = ModelRouter(_config())
+
+    resolved_alias, request_class = router._resolve_runtime_alias(
+        model_alias="mdrouter/auto",
+        messages=[{"role": "user", "content": "help me with this bug"}],
+        options=None,
+    )
+
+    assert request_class == "default_coding"
+    assert resolved_alias == "novita/demo-model"
+
+
+def test_auto_model_prefers_tool_heavy_pool_when_tools_present(monkeypatch):
+    monkeypatch.setenv("ROUTER_AUTO_TOOL_HEAVY_CANDIDATES", "go/kimi-k2.6")
+    router = ModelRouter(_config())
+
+    resolved_alias, request_class = router._resolve_runtime_alias(
+        model_alias="mdrouter/auto",
+        messages=[{"role": "user", "content": "list files"}],
+        options={
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "read_file",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {"path": {"type": "string"}},
+                        },
+                    },
+                }
+            ]
+        },
+    )
+
+    assert request_class == "tool_heavy"
+    assert resolved_alias == "go/kimi-k2.6"
+
+
+def test_auto_model_selects_vision_capable_model_for_image_input():
+    router = ModelRouter(_config())
+
+    resolved_alias, request_class = router._resolve_runtime_alias(
+        model_alias="mdrouter/auto",
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "describe"},
+                    {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+                ],
+            }
+        ],
+        options=None,
+    )
+
+    assert request_class == "default_coding"
+    assert resolved_alias == "go/vision-model"
+
+
+def test_list_models_contains_virtual_auto_alias():
+    router = ModelRouter(_config())
+
+    aliases = {model.model for model in router.list_models()}
+    assert "mdrouter/auto" in aliases
+
+
+def test_auto_cost_first_uses_free_round_robin(monkeypatch):
+    monkeypatch.setenv("ROUTER_AUTO_POLICY", "cost_first")
+    monkeypatch.setenv("ROUTER_AUTO_FREE_STRATEGY", "round_robin")
+    monkeypatch.setenv("ROUTER_AUTO_FREE_CANDIDATES", "go/free-a,go/free-b")
+    monkeypatch.delenv("ROUTER_AUTO_DEFAULT_CANDIDATES", raising=False)
+
+    router = ModelRouter(_config())
+    first_alias, first_class = router._resolve_runtime_alias(
+        model_alias="mdrouter/auto",
+        messages=[{"role": "user", "content": "quick syntax fix"}],
+        options=None,
+    )
+    second_alias, second_class = router._resolve_runtime_alias(
+        model_alias="mdrouter/auto",
+        messages=[{"role": "user", "content": "rename this function"}],
+        options=None,
+    )
+
+    assert first_class == "default_coding"
+    assert second_class == "default_coding"
+    assert {first_alias, second_alias} == {"go/free-a", "go/free-b"}
+    assert first_alias != second_alias
+
+
+def test_auto_vision_request_skips_non_vision_free_pool(monkeypatch):
+    monkeypatch.setenv("ROUTER_AUTO_POLICY", "cost_first")
+    monkeypatch.setenv("ROUTER_AUTO_FREE_CANDIDATES", "go/free-a,go/free-b")
+    monkeypatch.setenv("ROUTER_AUTO_DEFAULT_CANDIDATES", "go/vision-model")
+
+    router = ModelRouter(_config())
+    alias, request_class = router._resolve_runtime_alias(
+        model_alias="mdrouter/auto",
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "describe"},
+                    {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+                ],
+            }
+        ],
+        options=None,
+    )
+
+    assert request_class == "default_coding"
+    assert alias == "go/vision-model"

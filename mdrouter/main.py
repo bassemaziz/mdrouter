@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
+import sys
 import time
 from pathlib import Path
 from typing import Any, AsyncIterator
@@ -67,6 +69,81 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
         except (TypeError, ValueError):
             return 0
 
+    def visible_model_name(requested_model: str, meta: dict[str, Any] | None) -> str:
+        if requested_model != "mdrouter/auto":
+            return requested_model
+        if not isinstance(meta, dict):
+            return requested_model
+        upstream = meta.get("upstream_model")
+        if isinstance(upstream, str) and upstream.strip():
+            return upstream.strip()
+        return requested_model
+
+    def _content_input_chars(content: Any) -> int:
+        if isinstance(content, str):
+            return len(content)
+        if isinstance(content, (list, dict)):
+            return len(json.dumps(content, ensure_ascii=True, sort_keys=True))
+        return len(str(content))
+
+    def _iter_user_text(messages: list[dict[str, Any]]) -> str:
+        chunks: list[str] = []
+        for message in messages:
+            if str(message.get("role")) != "user":
+                continue
+            content = message.get("content")
+            if isinstance(content, str):
+                chunks.append(content)
+            elif isinstance(content, list):
+                for part in content:
+                    if isinstance(part, dict) and isinstance(part.get("text"), str):
+                        chunks.append(part["text"])
+        return "\n".join(chunks)
+
+    def _request_class_tag(messages: list[dict[str, Any]], options: dict[str, Any] | None) -> str:
+        message_count = len(messages)
+        input_chars = sum(_content_input_chars(msg.get("content", "")) for msg in messages)
+
+        tool_def_count = 0
+        if isinstance(options, dict):
+            tools = options.get("tools")
+            if isinstance(tools, list):
+                tool_def_count = len(tools)
+        history_tool_calls = 0
+        for msg in messages:
+            calls = msg.get("tool_calls")
+            if isinstance(calls, list):
+                history_tool_calls += len(calls)
+        if tool_def_count > 0 or history_tool_calls > 0:
+            return "tool_heavy"
+        if message_count >= 16 or input_chars >= 12000:
+            return "long_context"
+
+        user_text = _iter_user_text(messages).lower()
+        if re.search(r"\b(refactor|rewrite|migrate|re-architect|rearchitect)\b", user_text):
+            return "heavy_refactor"
+        return "default_coding"
+
+    def _request_telemetry(messages: list[dict[str, Any]], options: dict[str, Any] | None) -> dict[str, Any]:
+        message_count = len(messages)
+        input_chars = sum(_content_input_chars(msg.get("content", "")) for msg in messages)
+        tool_def_count = 0
+        if isinstance(options, dict):
+            tools = options.get("tools")
+            if isinstance(tools, list):
+                tool_def_count = len(tools)
+        history_tool_calls = 0
+        for msg in messages:
+            calls = msg.get("tool_calls")
+            if isinstance(calls, list):
+                history_tool_calls += len(calls)
+        return {
+            "message_count": message_count,
+            "input_chars": input_chars,
+            "tool_call_count": history_tool_calls + tool_def_count,
+            "request_class_tag": _request_class_tag(messages, options),
+        }
+
     async def stream_chat_result(
         *,
         model: str,
@@ -74,11 +151,20 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
         options: dict[str, Any] | None,
         format_name: str,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        resolved_alias, request_class_tag = router._resolve_runtime_alias(  # noqa: SLF001
+            model_alias=model,
+            messages=messages,
+            options=options,
+        )
         adapter, provider_req, provider_name = router._to_provider_request(  # noqa: SLF001
-            model_alias=model, messages=messages, stream=True, options=options
+            model_alias=model,
+            messages=messages,
+            stream=True,
+            options=options,
+            resolved_alias=resolved_alias,
         )
         exact_key = router.response_cache.make_exact_key(
-            model_alias=model,
+            model_alias=resolved_alias,
             provider=provider_name,
             messages=messages,
             options=options,
@@ -88,13 +174,15 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
         if runtime.cache_enabled:
             cached, cache_meta = await router.response_cache.lookup(
                 exact_key=exact_key,
-                model_alias=model,
+                model_alias=resolved_alias,
                 provider=provider_name,
                 messages=messages,
             )
         return ([cached] if cached is not None else []), {
             "provider": provider_name,
             "upstream_model": provider_req.model,
+            "routed_model_alias": resolved_alias,
+            "request_class_tag": request_class_tag,
             "cache_backend": router.response_cache.backend_name,
             "cache_hit": cache_meta["cache_hit"],
             "similarity": cache_meta["similarity"],
@@ -188,17 +276,21 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                             "path": "/api/chat",
                             "method": "POST",
                             "model": payload.model,
+                            "model_alias": payload.model,
                             "stream": True,
                             "provider": meta.get("provider"),
                             "upstream_model": meta.get("upstream_model"),
+                            "routed_model_alias": meta.get("routed_model_alias"),
                             "cache_backend": meta.get("cache_backend"),
                             "cache_hit": meta.get("cache_hit"),
+                            "cache_hit_type": meta.get("cache_hit"),
                             "semantic_similarity": meta.get("similarity"),
                             "semantic_eligible": meta.get("semantic_eligible"),
                             "latency_ms": 0,
                             "client": req.client.host if req.client else None,
                             "status": 200,
                             "event": "stream_cache_hit",
+                            **_request_telemetry(messages, payload.options),
                         }
                     )
                     return
@@ -208,15 +300,19 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                         "path": "/api/chat",
                         "method": "POST",
                         "model": payload.model,
+                        "model_alias": payload.model,
                         "stream": True,
                         "provider": meta.get("provider"),
                         "upstream_model": meta.get("upstream_model"),
+                        "routed_model_alias": meta.get("routed_model_alias"),
                         "cache_backend": meta.get("cache_backend"),
                         "cache_hit": "miss",
+                        "cache_hit_type": "miss",
                         "semantic_eligible": meta.get("semantic_eligible"),
                         "client": req.client.host if req.client else None,
                         "status": 200,
                         "event": "stream_cache_miss",
+                        **_request_telemetry(messages, payload.options),
                     }
                 )
                 stream_collected: list[str] = []
@@ -249,15 +345,18 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                         "path": "/api/chat",
                         "method": "POST",
                         "model": payload.model,
+                        "model_alias": payload.model,
                         "stream": True,
                         "provider": meta.get("provider"),
                         "upstream_model": meta.get("upstream_model"),
+                        "routed_model_alias": meta.get("routed_model_alias"),
                         "client": req.client.host if req.client else None,
                         "status": 200,
                         "event": "stream_done",
                         "response_body": {"content": "".join(stream_collected)}
                         if runtime.log_response_body
                         else None,
+                        **_request_telemetry(messages, payload.options),
                     }
                 )
 
@@ -266,12 +365,14 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                     "path": "/api/chat",
                     "method": "POST",
                     "model": payload.model,
+                    "model_alias": payload.model,
                     "stream": True,
                     "client": req.client.host if req.client else None,
                     "event": "request_start",
                     "request_body": payload.model_dump()
                     if runtime.log_request_body
                     else None,
+                    **_request_telemetry(messages, payload.options),
                 }
             )
             return StreamingResponse(stream(), media_type="application/x-ndjson")
@@ -290,11 +391,14 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                 "path": "/api/chat",
                 "method": "POST",
                 "model": payload.model,
+                "model_alias": payload.model,
                 "stream": False,
                 "provider": meta.get("provider"),
                 "upstream_model": meta.get("upstream_model"),
+                "routed_model_alias": meta.get("routed_model_alias"),
                 "cache_backend": meta.get("cache_backend"),
                 "cache_hit": meta.get("cache_hit"),
+                "cache_hit_type": meta.get("cache_hit"),
                 "semantic_similarity": meta.get("similarity"),
                 "semantic_eligible": meta.get("semantic_eligible"),
                 "latency_ms": meta.get("latency_ms", elapsed_ms),
@@ -309,6 +413,7 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                 "request_body": payload.model_dump()
                 if runtime.log_request_body
                 else None,
+                **_request_telemetry(messages, payload.options),
             }
         )
         return JSONResponse(response_payload)
@@ -362,17 +467,21 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                             "path": "/api/generate",
                             "method": "POST",
                             "model": payload.model,
+                            "model_alias": payload.model,
                             "stream": True,
                             "provider": meta.get("provider"),
                             "upstream_model": meta.get("upstream_model"),
+                            "routed_model_alias": meta.get("routed_model_alias"),
                             "cache_backend": meta.get("cache_backend"),
                             "cache_hit": meta.get("cache_hit"),
+                            "cache_hit_type": meta.get("cache_hit"),
                             "semantic_similarity": meta.get("similarity"),
                             "semantic_eligible": meta.get("semantic_eligible"),
                             "latency_ms": 0,
                             "client": req.client.host if req.client else None,
                             "status": 200,
                             "event": "stream_cache_hit",
+                            **_request_telemetry(messages, payload.options),
                         }
                     )
                     return
@@ -382,15 +491,19 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                         "path": "/api/generate",
                         "method": "POST",
                         "model": payload.model,
+                        "model_alias": payload.model,
                         "stream": True,
                         "provider": meta.get("provider"),
                         "upstream_model": meta.get("upstream_model"),
+                        "routed_model_alias": meta.get("routed_model_alias"),
                         "cache_backend": meta.get("cache_backend"),
                         "cache_hit": "miss",
+                        "cache_hit_type": "miss",
                         "semantic_eligible": meta.get("semantic_eligible"),
                         "client": req.client.host if req.client else None,
                         "status": 200,
                         "event": "stream_cache_miss",
+                        **_request_telemetry(messages, payload.options),
                     }
                 )
                 stream_collected: list[str] = []
@@ -432,15 +545,18 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                         "path": "/api/generate",
                         "method": "POST",
                         "model": payload.model,
+                        "model_alias": payload.model,
                         "stream": True,
                         "provider": meta.get("provider"),
                         "upstream_model": meta.get("upstream_model"),
+                        "routed_model_alias": meta.get("routed_model_alias"),
                         "client": req.client.host if req.client else None,
                         "status": 200,
                         "event": "stream_done",
                         "response_body": {"content": "".join(stream_collected)}
                         if runtime.log_response_body
                         else None,
+                        **_request_telemetry(messages, payload.options),
                     }
                 )
 
@@ -449,12 +565,14 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                     "path": "/api/generate",
                     "method": "POST",
                     "model": payload.model,
+                    "model_alias": payload.model,
                     "stream": True,
                     "client": req.client.host if req.client else None,
                     "event": "request_start",
                     "request_body": payload.model_dump()
                     if runtime.log_request_body
                     else None,
+                    **_request_telemetry(messages, payload.options),
                 }
             )
             return StreamingResponse(stream(), media_type="application/x-ndjson")
@@ -476,11 +594,14 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                 "path": "/api/generate",
                 "method": "POST",
                 "model": payload.model,
+                "model_alias": payload.model,
                 "stream": False,
                 "provider": meta.get("provider"),
                 "upstream_model": meta.get("upstream_model"),
+                "routed_model_alias": meta.get("routed_model_alias"),
                 "cache_backend": meta.get("cache_backend"),
                 "cache_hit": meta.get("cache_hit"),
+                "cache_hit_type": meta.get("cache_hit"),
                 "semantic_similarity": meta.get("similarity"),
                 "semantic_eligible": meta.get("semantic_eligible"),
                 "latency_ms": meta.get("latency_ms", elapsed_ms),
@@ -495,12 +616,29 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                 "request_body": payload.model_dump()
                 if runtime.log_request_body
                 else None,
+                **_request_telemetry(messages, payload.options),
             }
         )
         return JSONResponse(response_payload)
 
     @app.post("/api/show")
     async def api_show(request: OllamaShowRequest) -> dict[str, Any]:
+        if request.model == "mdrouter/auto":
+            auto_context_length = router.auto_context_length()
+            return {
+                "template": "",
+                "capabilities": ["vision", "tools"],
+                "details": {"family": "router"},
+                "model": "mdrouter/auto",
+                "remote_model": "mdrouter/auto",
+                "model_info": {
+                    "general.basename": "MDAuto",
+                    "general.architecture": "router",
+                    "router.context_length": auto_context_length,
+                    "llama.context_length": auto_context_length,
+                },
+            }
+
         try:
             resolved_alias, model_cfg = router.lookup_model_config(request.model)
         except HTTPException:
@@ -551,31 +689,36 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                 options=options or None,
                 format_name="openai_chat",
             )
+            response_model_name = visible_model_name(payload.model, meta)
 
             async def stream() -> AsyncIterator[str]:
                 if cached_entries:
                     cached = cached_entries[0]
                     content = cached.get("message", {}).get("content", "")
                     if content:
-                        yield f"data: {json.dumps({'id': 'chatcmpl-router', 'object': 'chat.completion.chunk', 'created': 0, 'model': payload.model, 'choices': [{'index': 0, 'delta': {'content': content}, 'finish_reason': None}]})}\n\n"
-                    yield f"data: {json.dumps({'id': 'chatcmpl-router', 'object': 'chat.completion.chunk', 'created': 0, 'model': payload.model, 'choices': [{'index': 0, 'delta': {'content': ''}, 'finish_reason': cached.get('done_reason', 'stop')}]})}\n\n"
+                        yield f"data: {json.dumps({'id': 'chatcmpl-router', 'object': 'chat.completion.chunk', 'created': 0, 'model': response_model_name, 'choices': [{'index': 0, 'delta': {'content': content}, 'finish_reason': None}]})}\n\n"
+                    yield f"data: {json.dumps({'id': 'chatcmpl-router', 'object': 'chat.completion.chunk', 'created': 0, 'model': response_model_name, 'choices': [{'index': 0, 'delta': {'content': ''}, 'finish_reason': cached.get('done_reason', 'stop')}]})}\n\n"
                     yield "data: [DONE]\n\n"
                     request_logger.write(
                         {
                             "path": "/v1/chat/completions",
                             "method": "POST",
                             "model": payload.model,
+                            "model_alias": payload.model,
                             "stream": True,
                             "provider": meta.get("provider"),
                             "upstream_model": meta.get("upstream_model"),
+                            "routed_model_alias": meta.get("routed_model_alias"),
                             "cache_backend": meta.get("cache_backend"),
                             "cache_hit": meta.get("cache_hit"),
+                            "cache_hit_type": meta.get("cache_hit"),
                             "semantic_similarity": meta.get("similarity"),
                             "semantic_eligible": meta.get("semantic_eligible"),
                             "latency_ms": 0,
                             "client": req.client.host if req.client else None,
                             "status": 200,
                             "event": "stream_cache_hit",
+                            **_request_telemetry(payload.messages, options or None),
                         }
                     )
                     return
@@ -585,15 +728,19 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                         "path": "/v1/chat/completions",
                         "method": "POST",
                         "model": payload.model,
+                        "model_alias": payload.model,
                         "stream": True,
                         "provider": meta.get("provider"),
                         "upstream_model": meta.get("upstream_model"),
+                        "routed_model_alias": meta.get("routed_model_alias"),
                         "cache_backend": meta.get("cache_backend"),
                         "cache_hit": "miss",
+                        "cache_hit_type": "miss",
                         "semantic_eligible": meta.get("semantic_eligible"),
                         "client": req.client.host if req.client else None,
                         "status": 200,
                         "event": "stream_cache_miss",
+                        **_request_telemetry(payload.messages, options or None),
                     }
                 )
                 stream_collected: list[str] = []
@@ -622,7 +769,7 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                             "id": "chatcmpl-router",
                             "object": "chat.completion.chunk",
                             "created": 0,
-                            "model": payload.model,
+                            "model": response_model_name,
                             "choices": [choice],
                         }
                         yield f"data: {json.dumps(chunk_payload)}\n\n"
@@ -633,7 +780,7 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                                 "id": "chatcmpl-router",
                                 "object": "chat.completion.chunk",
                                 "created": 0,
-                                "model": payload.model,
+                                "model": response_model_name,
                                 "choices": [],
                                 "usage": chunk["usage"],
                             }
@@ -644,7 +791,7 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                         "id": "chatcmpl-router",
                         "object": "chat.completion.chunk",
                         "created": 0,
-                        "model": payload.model,
+                        "model": response_model_name,
                         "choices": [
                             {
                                 "index": 0,
@@ -663,9 +810,11 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                         "path": "/v1/chat/completions",
                         "method": "POST",
                         "model": payload.model,
+                        "model_alias": payload.model,
                         "stream": True,
                         "provider": meta.get("provider"),
                         "upstream_model": meta.get("upstream_model"),
+                        "routed_model_alias": meta.get("routed_model_alias"),
                         "client": req.client.host if req.client else None,
                         "status": 200,
                         "event": "stream_done",
@@ -675,6 +824,7 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                         "response_body": {"content": "".join(stream_collected)}
                         if runtime.log_response_body
                         else None,
+                        **_request_telemetry(payload.messages, options or None),
                     }
                 )
 
@@ -683,12 +833,14 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                     "path": "/v1/chat/completions",
                     "method": "POST",
                     "model": payload.model,
+                    "model_alias": payload.model,
                     "stream": True,
                     "client": req.client.host if req.client else None,
                     "event": "request_start",
                     "request_body": payload.model_dump()
                     if runtime.log_request_body
                     else None,
+                    **_request_telemetry(payload.messages, options or None),
                 }
             )
             return StreamingResponse(stream(), media_type="text/event-stream")
@@ -698,12 +850,13 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
             messages=payload.messages,
             options=options or None,
         )
+        response_model_name = visible_model_name(payload.model, meta)
         usage = chat_payload.get("usage") if isinstance(chat_payload, dict) else None
         response = {
             "id": "chatcmpl-router",
             "object": "chat.completion",
             "created": 0,
-            "model": payload.model,
+            "model": response_model_name,
             "choices": [
                 {
                     "index": 0,
@@ -724,11 +877,14 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                 "path": "/v1/chat/completions",
                 "method": "POST",
                 "model": payload.model,
+                "model_alias": payload.model,
                 "stream": False,
                 "provider": meta.get("provider"),
                 "upstream_model": meta.get("upstream_model"),
+                "routed_model_alias": meta.get("routed_model_alias"),
                 "cache_backend": meta.get("cache_backend"),
                 "cache_hit": meta.get("cache_hit"),
+                "cache_hit_type": meta.get("cache_hit"),
                 "semantic_similarity": meta.get("similarity"),
                 "semantic_eligible": meta.get("semantic_eligible"),
                 "latency_ms": meta.get("latency_ms", elapsed_ms),
@@ -743,6 +899,7 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                 "request_body": payload.model_dump()
                 if runtime.log_request_body
                 else None,
+                **_request_telemetry(payload.messages, options or None),
             }
         )
         return JSONResponse(response)
@@ -751,6 +908,12 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
 
 
 def main() -> None:
+    if len(sys.argv) > 1 and sys.argv[1] in {"status", "stats", "cachestatus"}:
+        from mdrouter.ops import main as ops_main
+
+        ops_main()
+        return
+
     parser = argparse.ArgumentParser(description="Run Ollama-compatible router.")
     parser.add_argument(
         "--config",

@@ -129,7 +129,7 @@ def _status(args: argparse.Namespace) -> int:
         if rec.get("method") != "POST":
             continue
 
-        model = str(rec.get("model") or "unknown")
+        model = str(rec.get("model_alias") or rec.get("model") or "unknown")
         event = str(rec.get("event") or "")
         path = str(rec.get("path") or "")
 
@@ -142,7 +142,7 @@ def _status(args: argparse.Namespace) -> int:
             model_stats[model]["requests"] += 1
             totals["requests"] += 1
 
-        cache_hit = str(rec.get("cache_hit") or "")
+        cache_hit = str(rec.get("cache_hit_type") or rec.get("cache_hit") or "")
         if cache_hit == "exact":
             model_stats[model]["cache_exact"] += 1
             totals["cache_exact"] += 1
@@ -212,6 +212,106 @@ def _status(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cachestatus(args: argparse.Namespace) -> int:
+    log_file = Path(args.log_file)
+    records = _read_jsonl(log_file)
+    cutoff = datetime.now(UTC) - timedelta(hours=args.hours)
+
+    totals = {
+        "requests": 0,
+        "cache_exact": 0,
+        "cache_semantic": 0,
+        "cache_miss": 0,
+        "cache_upstream": 0,
+    }
+    per_model: dict[str, dict[str, int]] = defaultdict(
+        lambda: {
+            "requests": 0,
+            "cache_exact": 0,
+            "cache_semantic": 0,
+            "cache_miss": 0,
+            "cache_upstream": 0,
+        }
+    )
+
+    for rec in records:
+        ts = _parse_ts(rec.get("ts"))
+        if ts is not None and ts < cutoff:
+            continue
+        if rec.get("method") != "POST":
+            continue
+
+        path = str(rec.get("path") or "")
+        if path not in {"/api/chat", "/api/generate", "/v1/chat/completions"}:
+            continue
+
+        model = str(rec.get("model_alias") or rec.get("model") or "unknown")
+        event = str(rec.get("event") or "")
+        if event == "request_start":
+            totals["requests"] += 1
+            per_model[model]["requests"] += 1
+
+        cache_hit = str(rec.get("cache_hit_type") or rec.get("cache_hit") or "")
+        if cache_hit == "exact":
+            totals["cache_exact"] += 1
+            per_model[model]["cache_exact"] += 1
+        elif cache_hit == "semantic":
+            totals["cache_semantic"] += 1
+            per_model[model]["cache_semantic"] += 1
+        elif cache_hit == "miss":
+            totals["cache_miss"] += 1
+            per_model[model]["cache_miss"] += 1
+        elif cache_hit == "upstream":
+            totals["cache_upstream"] += 1
+            per_model[model]["cache_upstream"] += 1
+
+    cache_events = (
+        totals["cache_exact"]
+        + totals["cache_semantic"]
+        + totals["cache_miss"]
+        + totals["cache_upstream"]
+    )
+    hit_events = totals["cache_exact"] + totals["cache_semantic"]
+    hit_ratio = (hit_events / cache_events) if cache_events else 0.0
+
+    print(f"mdrouter cachestatus (last {args.hours}h)")
+    print(f"log file: {log_file}")
+    print()
+    print("Totals")
+    print(f"  Requests:           {_fmt_num(totals['requests'])}")
+    print(f"  Cache events:       {_fmt_num(cache_events)}")
+    print(f"  Cache exact hits:   {_fmt_num(totals['cache_exact'])}")
+    print(f"  Cache semantic:     {_fmt_num(totals['cache_semantic'])}")
+    print(f"  Cache misses:       {_fmt_num(totals['cache_miss'])}")
+    print(f"  Upstream events:    {_fmt_num(totals['cache_upstream'])}")
+    print(f"  Effective hit rate: {hit_ratio:.2%}")
+    print()
+
+    if not per_model:
+        print("No matching events found for selected time window.")
+        return 0
+
+    print("Per model")
+    for model, stat in sorted(per_model.items(), key=lambda kv: kv[0]):
+        model_events = (
+            stat["cache_exact"]
+            + stat["cache_semantic"]
+            + stat["cache_miss"]
+            + stat["cache_upstream"]
+        )
+        model_hits = stat["cache_exact"] + stat["cache_semantic"]
+        model_hit_ratio = (model_hits / model_events) if model_events else 0.0
+        print(f"- {model}")
+        print(f"    requests:         {_fmt_num(stat['requests'])}")
+        print(f"    cache_exact:      {_fmt_num(stat['cache_exact'])}")
+        print(f"    cache_semantic:   {_fmt_num(stat['cache_semantic'])}")
+        print(f"    cache_miss:       {_fmt_num(stat['cache_miss'])}")
+        print(f"    upstream_events:  {_fmt_num(stat['cache_upstream'])}")
+        print(f"    hit_rate:         {model_hit_ratio:.2%}")
+
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="mdrouter operations command")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -236,6 +336,39 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Optional pricing JSON file for cost estimation",
     )
 
+    stats = subparsers.add_parser("stats", help="Alias for status")
+    stats.add_argument(
+        "--log-file",
+        default="logs/router_requests.jsonl",
+        help="Path to JSONL request log file",
+    )
+    stats.add_argument(
+        "--hours",
+        type=int,
+        default=24,
+        help="Lookback window in hours",
+    )
+    stats.add_argument(
+        "--pricing",
+        default="",
+        help="Optional pricing JSON file for cost estimation",
+    )
+
+    cachestatus = subparsers.add_parser(
+        "cachestatus", help="Show cache-hit effectiveness from logs"
+    )
+    cachestatus.add_argument(
+        "--log-file",
+        default="logs/router_requests.jsonl",
+        help="Path to JSONL request log file",
+    )
+    cachestatus.add_argument(
+        "--hours",
+        type=int,
+        default=24,
+        help="Lookback window in hours",
+    )
+
     return parser
 
 
@@ -244,6 +377,10 @@ def main() -> None:
     args = parser.parse_args()
     if args.command == "status":
         raise SystemExit(_status(args))
+    if args.command == "stats":
+        raise SystemExit(_status(args))
+    if args.command == "cachestatus":
+        raise SystemExit(_cachestatus(args))
     parser.print_help()
 
 

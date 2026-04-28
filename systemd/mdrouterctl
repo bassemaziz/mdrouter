@@ -18,6 +18,8 @@ Usage:
   mdrouterctl status
   mdrouterctl logs
   mdrouterctl cost [hours]
+  mdrouterctl stats [hours]
+  mdrouterctl cachestatus [hours]
 
 Environment overrides:
   MDR_SERVICE_NAME, MDR_ROOT_DIR, MDR_PYTHON_BIN, MDR_LOG_FILE, MDR_PRICING_FILE
@@ -44,6 +46,14 @@ case "${cmd}" in
   cost)
     hours="${2:-24}"
     "${PYTHON_BIN}" -m mdrouter.ops status --hours "${hours}" --log-file "${LOG_FILE}" --pricing "${PRICING_FILE}"
+    ;;
+  stats)
+    hours="${2:-24}"
+    "${PYTHON_BIN}" -m mdrouter.ops stats --hours "${hours}" --log-file "${LOG_FILE}" --pricing "${PRICING_FILE}"
+    ;;
+  cachestatus)
+    hours="${2:-24}"
+    "${PYTHON_BIN}" -m mdrouter.ops cachestatus --hours "${hours}" --log-file "${LOG_FILE}"
     ;;
   *)
     usage
