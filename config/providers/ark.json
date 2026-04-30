@@ -1,0 +1,92 @@
+{
+  "providers": {
+    "ark": {
+      "type": "openai_compat",
+      "base_url": "https://ark.ap-southeast.bytepluses.com/api/coding/v3",
+      "api_key_env": "MODELARK_API_KEY",
+      "headers": {
+        "User-Agent": "opencode"
+      },
+      "wire_format": "openai_chat",
+      "timeout": 90,
+      "quirks": [
+        "require_reasoning_content_for_tool_calls",
+        "normalize_multimodal_content"
+      ]
+    }
+  },
+  "models": {
+    "ark/ark-code-latest": {
+      "provider": "ark",
+      "upstream_model": "ark-code-latest",
+      "capabilities": ["chat", "stream", "tools"],
+      "context_length": 256000,
+      "extra": {
+        "description": "Auto-selects optimal model based on performance and speed"
+      }
+    },
+    "ark/dola-seed-2.0-pro": {
+      "provider": "ark",
+      "upstream_model": "dola-seed-2.0-pro",
+      "capabilities": ["chat", "stream", "tools"],
+      "context_length": 256000,
+      "extra": {}
+    },
+    "ark/dola-seed-2.0-lite": {
+      "provider": "ark",
+      "upstream_model": "dola-seed-2.0-lite",
+      "capabilities": ["chat", "stream", "tools"],
+      "context_length": 256000,
+      "extra": {}
+    },
+    "ark/dola-seed-2.0-code": {
+      "provider": "ark",
+      "upstream_model": "dola-seed-2.0-code",
+      "capabilities": ["chat", "stream", "tools", "vision"],
+      "context_length": 256000,
+      "extra": {}
+    },
+    "ark/bytedance-seed-code": {
+      "provider": "ark",
+      "upstream_model": "bytedance-seed-code",
+      "capabilities": ["chat", "stream", "tools", "vision"],
+      "context_length": 256000,
+      "extra": {}
+    },
+    "ark/kimi-k2.5": {
+      "provider": "ark",
+      "upstream_model": "kimi-k2.5",
+      "capabilities": ["chat", "stream", "tools", "vision"],
+      "context_length": 256000,
+      "extra": {}
+    },
+    "ark/glm-5.1": {
+      "provider": "ark",
+      "upstream_model": "glm-5.1",
+      "capabilities": ["chat", "stream", "tools"],
+      "context_length": 200000,
+      "extra": {}
+    },
+    "ark/glm-4.7": {
+      "provider": "ark",
+      "upstream_model": "glm-4.7",
+      "capabilities": ["chat", "stream", "tools"],
+      "context_length": 128000,
+      "extra": {}
+    },
+    "ark/deepseek-v3.2": {
+      "provider": "ark",
+      "upstream_model": "deepseek-v3.2",
+      "capabilities": ["chat", "stream", "tools"],
+      "context_length": 256000,
+      "extra": {}
+    },
+    "ark/gpt-oss-120b": {
+      "provider": "ark",
+      "upstream_model": "gpt-oss-120b",
+      "capabilities": ["chat", "stream", "tools"],
+      "context_length": 256000,
+      "extra": {}
+    }
+  }
+}

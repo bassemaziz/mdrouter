@@ -1,0 +1,74 @@
+{
+  "providers": {
+    "zen": {
+      "type": "openai_compat",
+      "base_url": "https://opencode.ai/zen/v1",
+      "api_key_env": "OPENCODE_ZEN_API_KEY",
+      "headers": {
+        "User-Agent": "opencode"
+      },
+      "wire_format": "openai_chat",
+      "timeout": 90,
+      "quirks": [
+        "require_reasoning_content_for_tool_calls",
+        "normalize_multimodal_content"
+      ]
+    }
+  },
+  "models": {
+    "zen/big-pickle": {
+      "provider": "zen",
+      "upstream_model": "big-pickle",
+      "capabilities": ["chat", "stream", "tools"],
+      "context_length": 131072,
+      "extra": {
+        "tier": "free"
+      }
+    },
+    "zen/minimax-m2.5-free": {
+      "provider": "zen",
+      "upstream_model": "minimax-m2.5-free",
+      "capabilities": ["chat", "stream", "tools"],
+      "context_length": 131072,
+      "extra": {
+        "tier": "free"
+      }
+    },
+    "zen/ling-2.6-flash-free": {
+      "provider": "zen",
+      "upstream_model": "ling-2.6-flash",
+      "capabilities": ["chat", "stream", "tools"],
+      "context_length": 131072,
+      "extra": {
+        "tier": "free"
+      }
+    },
+    "zen/hy3-preview-free": {
+      "provider": "zen",
+      "upstream_model": "hy3-preview-free",
+      "capabilities": ["chat", "stream", "tools"],
+      "context_length": 131072,
+      "extra": {
+        "tier": "free"
+      }
+    },
+    "zen/nemotron-3-super-free": {
+      "provider": "zen",
+      "upstream_model": "nemotron-3-super-free",
+      "capabilities": ["chat", "stream", "tools"],
+      "context_length": 131072,
+      "extra": {
+        "tier": "free"
+      }
+    },
+    "zen/gpt-5-nano": {
+      "provider": "zen",
+      "upstream_model": "gpt-5-nano",
+      "capabilities": ["chat", "stream", "tools"],
+      "context_length": 272000,
+      "extra": {
+        "tier": "free"
+      }
+    }
+  }
+}

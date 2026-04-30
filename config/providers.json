@@ -1,7 +1,9 @@
 {
   "provider_files": [
     "providers/novita.json",
-    "providers/go.json"
+    "providers/go.json",
+    "providers/zen.json",
+    "providers/ark.json"
   ],
   "routing": {
     "strict_provider_prefix": true,

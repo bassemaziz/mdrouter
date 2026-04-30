@@ -58,6 +58,7 @@ def test_tags_endpoint(tmp_path):
     assert response.status_code == 200
     payload = response.json()
     assert payload["models"][0]["name"] == "novita/demo-model"
+    assert payload["models"][0]["model_info"]["general.basename"] == "novita/demo-model"
     assert payload["models"][0]["model_info"]["router.context_length"] == 131072
 
 
@@ -68,6 +69,7 @@ def test_show_endpoint_uses_model_context_length(tmp_path):
 
     assert response.status_code == 200
     payload = response.json()
+    assert payload["model_info"]["general.basename"] == "novita/demo-model"
     assert payload["model_info"]["router.context_length"] == 131072
 
 
@@ -322,7 +324,7 @@ def test_v1_chat_completions_stream_upstream_http_error_emits_choices_chunk(tmp_
 
 
 @respx.mock
-def test_v1_chat_completions_auto_non_stream_uses_upstream_model_name(tmp_path):
+def test_v1_chat_completions_auto_non_stream_uses_routed_model_alias(tmp_path):
     respx.post("http://upstream.test/v1/chat/completions").mock(
         return_value=Response(
             200,
@@ -352,11 +354,11 @@ def test_v1_chat_completions_auto_non_stream_uses_upstream_model_name(tmp_path):
     )
 
     assert response.status_code == 200
-    assert response.json()["model"] == "demo-upstream"
+    assert response.json()["model"] == "novita/demo-model"
 
 
 @respx.mock
-def test_v1_chat_completions_auto_stream_uses_upstream_model_name(tmp_path):
+def test_v1_chat_completions_auto_stream_uses_routed_model_alias(tmp_path):
     sse = (
         'data: {"choices":[{"delta":{"content":"Hello"}}]}\n\n'
         'data: {"choices":[{"delta":{"content":" world"}}]}\n\n'
@@ -390,4 +392,4 @@ def test_v1_chat_completions_auto_stream_uses_upstream_model_name(tmp_path):
         if isinstance(payload.get("model"), str):
             models.append(payload["model"])
     assert models
-    assert all(model_name == "demo-upstream" for model_name in models)
+    assert all(model_name == "novita/demo-model" for model_name in models)
