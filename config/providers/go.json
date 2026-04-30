@@ -11,7 +11,8 @@
       "timeout": 90,
       "quirks": [
         "require_reasoning_content_for_tool_calls",
-        "normalize_multimodal_content"
+        "normalize_multimodal_content",
+        "no_prompt_cache"
       ]
     }
   },

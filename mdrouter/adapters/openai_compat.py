@@ -13,6 +13,7 @@ QUIRK_REQUIRE_REASONING_CONTENT_FOR_TOOL_CALLS = (
     "require_reasoning_content_for_tool_calls"
 )
 QUIRK_NORMALIZE_MULTIMODAL_CONTENT = "normalize_multimodal_content"
+QUIRK_NO_PROMPT_CACHE = "no_prompt_cache"
 
 
 class OpenAICompatibleAdapter(ProviderAdapter):
