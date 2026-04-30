@@ -12,6 +12,7 @@ mdrouter is an OpenAI/Ollama-compatible multi-provider LLM router focused on pre
 - Ollama-compatible APIs: `/api/tags`, `/api/chat`, `/api/generate`, `/api/version`
 - OpenAI-compatible API: `/v1/chat/completions`
 - Provider-agnostic alias routing (`provider/model`)
+- Model metadata and visible IDs use provider-prefixed aliases to avoid cross-provider name collisions
 - Smart virtual alias: `mdrouter/auto`
 - JSONL request logging with operational metrics
 - Operator CLI for request, cache, and token/cost visibility

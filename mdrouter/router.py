@@ -202,8 +202,9 @@ class ModelRouter:
                     digest=f"sha256:{digest}",
                     capabilities=caps,
                     model_info={
-                        "general.basename": model_cfg.upstream_model.split("/")[-1],
+                        "general.basename": alias,
                         "general.architecture": "router",
+                        "router.upstream_model": model_cfg.upstream_model,
                         "router.context_length": model_cfg.context_length,
                         "llama.context_length": model_cfg.context_length,
                     },

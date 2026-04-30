@@ -74,6 +74,9 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
             return requested_model
         if not isinstance(meta, dict):
             return requested_model
+        routed_alias = meta.get("routed_model_alias")
+        if isinstance(routed_alias, str) and routed_alias.strip():
+            return routed_alias.strip()
         upstream = meta.get("upstream_model")
         if isinstance(upstream, str) and upstream.strip():
             return upstream.strip()
@@ -654,7 +657,6 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                 },
             }
 
-        basename = model_cfg.upstream_model.split("/")[-1]
         caps = []
         if "vision" in model_cfg.capabilities:
             caps.append("vision")
@@ -667,8 +669,9 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
             "model": resolved_alias,
             "remote_model": model_cfg.upstream_model,
             "model_info": {
-                "general.basename": basename,
+                "general.basename": resolved_alias,
                 "general.architecture": "router",
+                "router.upstream_model": model_cfg.upstream_model,
                 "router.context_length": model_cfg.context_length,
                 "llama.context_length": model_cfg.context_length,
             },

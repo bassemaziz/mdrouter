@@ -16,60 +16,6 @@
     }
   },
   "models": {
-    "go/big-pickle-free": {
-      "provider": "go",
-      "upstream_model": "big-pickle",
-      "capabilities": ["chat", "stream", "tools"],
-      "context_length": 131072,
-      "extra": {
-        "tier": "free"
-      }
-    },
-    "go/minimax-m2.5-free": {
-      "provider": "go",
-      "upstream_model": "minimax-m2.5-free",
-      "capabilities": ["chat", "stream", "tools"],
-      "context_length": 131072,
-      "extra": {
-        "tier": "free"
-      }
-    },
-    "go/ling-2.6-flash-free": {
-      "provider": "go",
-      "upstream_model": "ling-2.6-flash",
-      "capabilities": ["chat", "stream", "tools"],
-      "context_length": 131072,
-      "extra": {
-        "tier": "free"
-      }
-    },
-    "go/hy3-preview-free": {
-      "provider": "go",
-      "upstream_model": "hy3-preview-free",
-      "capabilities": ["chat", "stream", "tools"],
-      "context_length": 131072,
-      "extra": {
-        "tier": "free"
-      }
-    },
-    "go/nemotron-3-super-free": {
-      "provider": "go",
-      "upstream_model": "nemotron-3-super-free",
-      "capabilities": ["chat", "stream", "tools"],
-      "context_length": 131072,
-      "extra": {
-        "tier": "free"
-      }
-    },
-    "go/gpt-5-nano-free": {
-      "provider": "go",
-      "upstream_model": "gpt-5-nano",
-      "capabilities": ["chat", "stream", "tools"],
-      "context_length": 272000,
-      "extra": {
-        "tier": "free"
-      }
-    },
     "go/glm-5.1": {
       "provider": "go",
       "upstream_model": "glm-5.1",
