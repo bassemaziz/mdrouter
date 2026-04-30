@@ -14,6 +14,7 @@ from fastapi import HTTPException
 from mdrouter.adapters.base import ProviderAdapter
 from mdrouter.adapters.openai_compat import OpenAICompatibleAdapter
 from mdrouter.adapters.openai_compat import QUIRK_NORMALIZE_MULTIMODAL_CONTENT
+from mdrouter.adapters.openai_compat import QUIRK_NO_PROMPT_CACHE
 from mdrouter.adapters.openai_compat import QUIRK_REQUIRE_REASONING_CONTENT_FOR_TOOL_CALLS
 from mdrouter.config import AppConfig
 from mdrouter.config import ModelConfig
@@ -606,19 +607,21 @@ class ModelRouter:
         adapter, upstream_model, provider_name = self._resolve_model(effective_alias)
         mutable_options = dict(options or {})
 
+        provider_quirks = self.provider_quirks.get(provider_name, frozenset())
         if (
             self.runtime.prompt_cache_key_enabled
             and "prompt_cache_key" not in mutable_options
+            and QUIRK_NO_PROMPT_CACHE not in provider_quirks
         ):
             mutable_options["prompt_cache_key"] = f"router:{effective_alias}"
         if (
             self.runtime.prompt_cache_retention
             and "prompt_cache_retention" not in mutable_options
+            and QUIRK_NO_PROMPT_CACHE not in provider_quirks
         ):
             mutable_options["prompt_cache_retention"] = (
                 self.runtime.prompt_cache_retention
             )
-        provider_quirks = self.provider_quirks.get(provider_name, frozenset())
         if QUIRK_REQUIRE_REASONING_CONTENT_FOR_TOOL_CALLS in provider_quirks:
             mutable_messages = _inject_reasoning_content_for_tool_calls(
                 mutable_messages
