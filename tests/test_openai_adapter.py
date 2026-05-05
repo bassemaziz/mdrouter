@@ -268,3 +268,40 @@ async def test_options_cannot_override_core_payload_messages() -> None:
     assert isinstance(content, list)
     assert content[0]["type"] == "image_url"
     assert content[0]["image_url"]["url"] == "data:image/png;base64,AAAA"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_chat_stream_parses_data_prefix_without_space() -> None:
+    stream_payload = (
+        'data:{"choices":[{"delta":{"content":"Hi"}}]}\n\n'
+        'data:{"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n'
+        "data:[DONE]\n"
+    )
+    respx.post("http://upstream.test/v1/chat/completions").mock(
+        return_value=Response(
+            200,
+            text=stream_payload,
+            headers={"content-type": "text/event-stream"},
+        )
+    )
+
+    adapter = OpenAICompatibleAdapter(
+        base_url="http://upstream.test/v1",
+        headers={},
+        timeout=5,
+    )
+    request = UpstreamProviderRequest(
+        model="demo",
+        messages=[{"role": "user", "content": "Hello"}],
+        stream=True,
+        options=None,
+    )
+
+    chunks: list[dict[str, object]] = []
+    async for chunk in adapter.chat_stream(request):
+        chunks.append(chunk)
+
+    assert len(chunks) == 2
+    assert chunks[0]["choices"][0]["delta"]["content"] == "Hi"
+    assert chunks[1]["choices"][0]["finish_reason"] == "stop"

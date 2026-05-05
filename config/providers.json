@@ -3,7 +3,8 @@
     "providers/novita.json",
     "providers/go.json",
     "providers/zen.json",
-    "providers/ark.json"
+    "providers/ark.json",
+    "providers/fireworks.json"
   ],
   "routing": {
     "strict_provider_prefix": true,

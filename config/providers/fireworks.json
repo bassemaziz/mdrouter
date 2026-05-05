@@ -1,0 +1,70 @@
+{
+  "providers": {
+    "fireworks": {
+      "type": "openai_compat",
+      "base_url": "https://api.fireworks.ai/inference/v1",
+      "api_key_env": "FIREWORKS_API_KEY",
+      "wire_format": "openai_chat",
+      "timeout": 90,
+      "quirks": ["no_prompt_cache"]
+    }
+  },
+  "models": {
+    "fireworks/kimi-k2p5": {
+      "provider": "fireworks",
+      "upstream_model": "accounts/fireworks/models/kimi-k2p5",
+      "capabilities": ["chat", "stream", "tools","vision"],
+      "context_length": 256000,
+      "extra": {}
+    },
+    "fireworks/kimi-k2-instruct-0905": {
+      "provider": "fireworks",
+      "upstream_model": "accounts/fireworks/models/kimi-k2-instruct-0905",
+      "capabilities": ["chat", "stream", "tools"],
+      "context_length": 262000,
+      "extra": {}
+    },
+    "fireworks/deepseek-v3p2": {
+      "provider": "fireworks",
+      "upstream_model": "accounts/fireworks/models/deepseek-v3p2",
+      "capabilities": ["chat", "stream", "tools"],
+      "context_length": 163000,
+      "extra": {}
+    },
+    "fireworks/minimax-m2p5": {
+      "provider": "fireworks",
+      "upstream_model": "accounts/fireworks/models/minimax-m2p5",
+      "capabilities": ["chat", "stream", "tools"],
+      "context_length": 196000,
+      "extra": {}
+    },
+    "fireworks/glm-4p7": {
+      "provider": "fireworks",
+      "upstream_model": "accounts/fireworks/models/glm-4p7",
+      "capabilities": ["chat", "stream", "tools"],
+      "context_length": 202000,
+      "extra": {}
+    },
+    "fireworks/glm-5": {
+      "provider": "fireworks",
+      "upstream_model": "accounts/fireworks/models/glm-5",
+      "capabilities": ["chat", "stream", "tools"],
+      "context_length": 202000,
+      "extra": {}
+    },
+    "fireworks/qwen3-235b-a22b": {
+      "provider": "fireworks",
+      "upstream_model": "accounts/fireworks/models/qwen3-235b-a22b",
+      "capabilities": ["chat", "stream", "tools"],
+      "context_length": 131000,
+      "extra": {}
+    },
+    "fireworks/qwen2p5-coder-32b-instruct": {
+      "provider": "fireworks",
+      "upstream_model": "accounts/fireworks/models/qwen2p5-coder-32b-instruct",
+      "capabilities": ["chat", "stream", "tools"],
+      "context_length": 32000,
+      "extra": {}
+    }
+  }
+}

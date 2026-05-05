@@ -161,8 +161,8 @@ class OpenAICompatibleAdapter(ProviderAdapter):
                 async for line in response.aiter_lines():
                     if not line:
                         continue
-                    if line.startswith("data: "):
-                        data = line[6:]
+                    if line.startswith("data:"):
+                        data = line[5:].lstrip()
                     else:
                         data = line
                     if data.strip() == "[DONE]":
