@@ -152,12 +152,20 @@ mdrouterctl status --hours 24 --pricing config/pricing.example.json
 
 A starter unit is included at `systemd/mdrouter@.service`.
 
+The unit includes a self-healing `ExecStartPre` step that terminates stale `python -m mdrouter`
+listeners on port `11435` before startup, preventing restart loops caused by `address already in use`.
+
 ```bash
 sudo cp systemd/mdrouter@.service /etc/systemd/system/
 sudo chmod +x systemd/mdrouterctl
 sudo systemctl daemon-reload
 sudo systemctl enable mdrouter@${USER}.service
 sudo systemctl start mdrouter@${USER}.service
+
+# If the unit file already exists, re-copy it before reload/restart:
+sudo cp systemd/mdrouter@.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl restart mdrouter@${USER}.service
 ```
 
 ## Development

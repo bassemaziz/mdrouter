@@ -6,9 +6,11 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=%i
-WorkingDirectory=/opt/mdrouter
-EnvironmentFile=/opt/mdrouter/.env
-ExecStart=/opt/mdrouter/.venv/bin/python -m mdrouter --config /opt/mdrouter/config/providers.json
+WorkingDirectory=/home/bassem/Documents/dev/mdrouter
+EnvironmentFile=/home/bassem/Documents/dev/mdrouter/.env
+# Self-heal stale listeners left by old/manual mdrouter processes.
+ExecStartPre=/usr/bin/bash -lc 'for pid in $(/usr/bin/lsof -t -iTCP:11435 -sTCP:LISTEN 2>/dev/null || true); do cmdline=$(/usr/bin/tr "\0" " " <"/proc/$${pid}/cmdline" 2>/dev/null || true); case "$${cmdline}" in *" -m mdrouter "*) /usr/bin/kill -TERM "$${pid}" || true ;; esac; done'
+ExecStart=/home/bassem/Documents/dev/mdrouter/.venv/bin/python -m mdrouter --config /home/bassem/Documents/dev/mdrouter/config/providers.json
 Restart=always
 RestartSec=3
 KillSignal=SIGINT

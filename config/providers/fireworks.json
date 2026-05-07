@@ -38,6 +38,13 @@
       "context_length": 196000,
       "extra": {}
     },
+     "fireworks/minimax-m2p7": {
+      "provider": "fireworks",
+      "upstream_model": "accounts/fireworks/models/minimax-m2p7",
+      "capabilities": ["chat", "stream", "tools"],
+      "context_length": 196000,
+      "extra": {}
+    },
     "fireworks/glm-4p7": {
       "provider": "fireworks",
       "upstream_model": "accounts/fireworks/models/glm-4p7",
