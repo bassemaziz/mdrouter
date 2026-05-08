@@ -52,3 +52,6 @@ class UpstreamProviderRequest(BaseModel):
     messages: list[dict[str, Any]]
     stream: bool
     options: dict[str, Any] | None = None
+    # Thinking/reasoning mode (DeepSeek, etc.)
+    thinking: dict[str, Any] | None = None
+    reasoning_effort: str | None = None

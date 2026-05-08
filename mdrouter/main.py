@@ -47,6 +47,9 @@ class OpenAIChatRequest(BaseModel):
     top_p: float | None = None
     frequency_penalty: float | None = None
     presence_penalty: float | None = None
+    # DeepSeek thinking mode
+    thinking: dict[str, Any] | None = None
+    reasoning_effort: str | None = None
 
 
 def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
@@ -679,10 +682,18 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
 
     @app.post("/v1/chat/completions")
     async def v1_chat_completions(payload: OpenAIChatRequest, req: Request):
+        # Extract thinking/reasoning_effort from payload (not options) so they
+        # land at the top level of the upstream payload.
         options = payload.model_dump(
-            exclude={"model", "messages", "stream"},
+            exclude={"model", "messages", "stream", "thinking", "reasoning_effort"},
             exclude_none=True,
         )
+        thinking = payload.thinking
+        reasoning_effort = payload.reasoning_effort
+        if thinking is not None:
+            options["thinking"] = thinking
+        if reasoning_effort is not None:
+            options["reasoning_effort"] = reasoning_effort
 
         started = time.perf_counter()
         if payload.stream:

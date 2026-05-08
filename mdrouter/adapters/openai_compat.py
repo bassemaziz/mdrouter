@@ -12,6 +12,9 @@ from mdrouter.models import UpstreamProviderRequest
 QUIRK_REQUIRE_REASONING_CONTENT_FOR_TOOL_CALLS = (
     "require_reasoning_content_for_tool_calls"
 )
+QUIRK_REQUIRE_REASONING_CONTENT_FOR_THINKING = (
+    "require_reasoning_content_for_thinking"
+)
 QUIRK_NORMALIZE_MULTIMODAL_CONTENT = "normalize_multimodal_content"
 QUIRK_NO_PROMPT_CACHE = "no_prompt_cache"
 
@@ -73,6 +76,7 @@ class OpenAICompatibleAdapter(ProviderAdapter):
 
     def _prepare_messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         patched: list[dict[str, Any]] = []
+        has_thinking = QUIRK_REQUIRE_REASONING_CONTENT_FOR_THINKING in self.quirks
         for msg in messages:
             # Keep payload OpenAI-compatible for all providers:
             # content must be either a string or an array of typed parts.
@@ -102,6 +106,17 @@ class OpenAICompatibleAdapter(ProviderAdapter):
                 # For tool-call history, keep content key stable across providers.
                 if "content" not in clone:
                     clone["content"] = None
+
+            # DeepSeek thinking mode: assistant messages need reasoning_content.
+            if has_thinking and clone.get("role") == "assistant":
+                reasoning = clone.get("reasoning_content", "")
+                if not reasoning or not reasoning.strip():
+                    content = clone.get("content")
+                    if isinstance(content, str) and content.strip():
+                        clone["reasoning_content"] = content
+                    else:
+                        clone["reasoning_content"] = ""
+
             patched.append(clone)
         return patched
 
@@ -114,13 +129,18 @@ class OpenAICompatibleAdapter(ProviderAdapter):
         }
         if stream:
             payload["stream_options"] = {"include_usage": True}
+        # DeepSeek thinking mode — pass top-level so the provider receives them.
+        if request.reasoning_effort is not None:
+            payload["reasoning_effort"] = request.reasoning_effort
+        if request.thinking is not None:
+            payload["thinking"] = request.thinking
         if request.options:
             # Preserve canonical transport keys even if callers pass them in options.
             payload.update(
                 {
                     key: value
                     for key, value in request.options.items()
-                    if key not in {"model", "messages", "stream"}
+                    if key not in {"model", "messages", "stream", "thinking", "reasoning_effort"}
                 }
             )
         return payload
