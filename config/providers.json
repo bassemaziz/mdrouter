@@ -4,7 +4,8 @@
     "providers/go.json",
     "providers/zen.json",
     "providers/ark.json",
-    "providers/fireworks.json"
+    "providers/fireworks.json",
+    "providers/deepseek.json"
   ],
   "routing": {
     "strict_provider_prefix": true,

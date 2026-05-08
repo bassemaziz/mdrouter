@@ -15,6 +15,7 @@ from mdrouter.adapters.base import ProviderAdapter
 from mdrouter.adapters.openai_compat import OpenAICompatibleAdapter
 from mdrouter.adapters.openai_compat import QUIRK_NORMALIZE_MULTIMODAL_CONTENT
 from mdrouter.adapters.openai_compat import QUIRK_NO_PROMPT_CACHE
+from mdrouter.adapters.openai_compat import QUIRK_REQUIRE_REASONING_CONTENT_FOR_THINKING
 from mdrouter.adapters.openai_compat import QUIRK_REQUIRE_REASONING_CONTENT_FOR_TOOL_CALLS
 from mdrouter.config import AppConfig
 from mdrouter.config import ModelConfig
@@ -116,6 +117,29 @@ def _inject_reasoning_content_for_tool_calls(
     return patched
 
 
+def _inject_reasoning_content_for_thinking(
+    messages: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Inject reasoning_content into assistant messages for DeepSeek thinking mode.
+
+    DeepSeek requires that assistant messages include the reasoning_content field
+    when the request has thinking/reasoning_effort enabled.
+    """
+    patched: list[dict[str, Any]] = []
+    for msg in messages:
+        clone = dict(msg)
+        if clone.get("role") == "assistant":
+            reasoning = clone.get("reasoning_content", "")
+            if not reasoning or not reasoning.strip():
+                content = clone.get("content")
+                if isinstance(content, str) and content.strip():
+                    clone["reasoning_content"] = content
+                else:
+                    clone["reasoning_content"] = ""
+        patched.append(clone)
+    return patched
+
+
 class ModelRouter:
     def __init__(
         self, config: AppConfig, runtime: RuntimeSettings | None = None
@@ -194,6 +218,8 @@ class ModelRouter:
                 caps.append("vision")
             if "tools" in model_cfg.capabilities:
                 caps.append("tools")
+            if "thinking" in model_cfg.capabilities:
+                caps.append("thinking")
             result.append(
                 OllamaTagModel(
                     name=alias,
@@ -212,6 +238,7 @@ class ModelRouter:
                     supports={
                         "vision": "vision" in model_cfg.capabilities,
                         "tool_calls": "tools" in model_cfg.capabilities,
+                        "thinking": "thinking" in model_cfg.capabilities,
                     },
                     details={
                         "format": "router",
@@ -629,6 +656,13 @@ class ModelRouter:
         if provider_name == "alibaba" and self.runtime.alibaba_explicit_cache:
             mutable_messages = self._inject_alibaba_explicit_cache(mutable_messages)
 
+        thinking = mutable_options.pop("thinking", None)
+        reasoning_effort = mutable_options.pop("reasoning_effort", None)
+        has_thinking = thinking is not None or reasoning_effort is not None
+
+        if has_thinking and QUIRK_REQUIRE_REASONING_CONTENT_FOR_THINKING in provider_quirks:
+            mutable_messages = _inject_reasoning_content_for_thinking(mutable_messages)
+
         return (
             adapter,
             UpstreamProviderRequest(
@@ -636,6 +670,8 @@ class ModelRouter:
                 messages=mutable_messages,
                 stream=stream,
                 options=mutable_options or None,
+                thinking=thinking,
+                reasoning_effort=reasoning_effort,
             ),
             provider_name,
         )
