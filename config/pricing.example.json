@@ -15,6 +15,18 @@
     "zai/glm-4.5": {
       "prompt_per_mtok": 0.6,
       "completion_per_mtok": 1.8
+    },
+    "anthropic/claude-opus-4-7": {
+      "prompt_per_mtok": 15.0,
+      "completion_per_mtok": 75.0
+    },
+    "anthropic/claude-sonnet-4-6": {
+      "prompt_per_mtok": 3.0,
+      "completion_per_mtok": 15.0
+    },
+    "anthropic/claude-haiku-4-5": {
+      "prompt_per_mtok": 0.8,
+      "completion_per_mtok": 4.0
     }
   }
 }

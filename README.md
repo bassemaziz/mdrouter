@@ -1,6 +1,6 @@
 # mdrouter
 
-mdrouter is an OpenAI/Ollama-compatible multi-provider LLM router focused on predictable operations, lower cost, and low-latency routing.
+mdrouter is an OpenAI/Ollama/Anthropic-compatible multi-provider LLM router focused on predictable operations, lower cost, and low-latency routing.
 
 ## Documentation
 
@@ -11,6 +11,7 @@ mdrouter is an OpenAI/Ollama-compatible multi-provider LLM router focused on pre
 
 - Ollama-compatible APIs: `/api/tags`, `/api/chat`, `/api/generate`, `/api/version`
 - OpenAI-compatible API: `/v1/chat/completions`
+- Anthropic-compatible API: `/v1/messages` (for Claude Code, etc.)
 - Provider-agnostic alias routing (`provider/model`)
 - Model metadata and visible IDs use provider-prefixed aliases to avoid cross-provider name collisions
 - Smart virtual alias: `mdrouter/auto`
@@ -36,6 +37,7 @@ Provider configuration is split for clarity:
 - `config/providers.json`: global routing + provider file references
 - `config/providers/novita.json`: Novita provider + models
 - `config/providers/go.json`: Go provider + models
+- `config/providers/anthropic.json.example`: Anthropic provider + models (copy to `providers/anthropic.json` to enable)
 
 Enable runtime providers with:
 
@@ -47,6 +49,7 @@ Required API keys:
 
 - `NOVITA_API_KEY`
 - `OPENCODE_GO_API_KEY`
+- `ANTHROPIC_API_KEY` (when using Anthropic provider)
 
 ## Runtime Environment Variables
 
@@ -168,6 +171,75 @@ sudo systemctl daemon-reload
 sudo systemctl restart mdrouter@${USER}.service
 ```
 
+## Anthropic-compatible API (`POST /v1/messages`)
+
+mdrouter exposes an Anthropic-compatible Messages endpoint for tools that speak the Anthropic protocol, including Claude Code.
+
+```bash
+curl -s http://127.0.0.1:11435/v1/messages \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "anthropic/claude-sonnet-4-6",
+    "messages": [{"role": "user", "content": "Hello"}],
+    "max_tokens": 256
+  }' | jq .
+```
+
+Supported for both streaming (`stream: true`) and non-streaming requests.
+
+## Claude Code with mdrouter
+
+Use this when you want Claude Code to talk to mdrouter while mdrouter routes to your configured providers.
+
+### 1) Start mdrouter
+
+```bash
+python3 -m mdrouter --config config/providers.json
+```
+
+### 2) Configure Claude Code environment
+
+```bash
+export ANTHROPIC_BASE_URL="http://127.0.0.1:11435"
+export ANTHROPIC_AUTH_TOKEN="mdrouter-local-token"
+unset ANTHROPIC_API_KEY
+```
+
+Notes:
+- Use exactly one auth mechanism in your shell session for Claude Code.
+- Prefer `ANTHROPIC_AUTH_TOKEN` for local mdrouter.
+- If `ANTHROPIC_API_KEY` is set at the same time, some clients can pick the wrong credential path.
+
+### 3) Run Claude Code against a routed alias
+
+```bash
+claude --model anthropic/claude-sonnet-4-6
+```
+
+Best practices:
+- Use provider-prefixed aliases (`provider/model`) to avoid ambiguity.
+- Keep `strict_provider_prefix` enabled in routing config for deterministic model resolution.
+- Verify available routed models with:
+
+```bash
+curl -s http://127.0.0.1:11435/v1/models | jq .
+```
+
+### 4) Troubleshooting
+
+```bash
+# Service status
+mdrouterctl status --hours 1 --log-file logs/router_requests.jsonl
+
+# Recent request events
+tail -n 50 logs/router_requests.jsonl
+```
+
+Common issues:
+- 401/403 from client: check token env vars and clear conflicting auth vars.
+- Unknown model: use a configured alias from `/v1/models`.
+- Tool-call errors: confirm the selected model has `tools` capability in provider config.
+
 ## Development
 
 ```bash
@@ -175,10 +247,10 @@ pytest
 make precommit
 ```
 
-## License
-
-MIT. See [LICENSE](LICENSE).
-
 ## Compatibility
 
 The canonical package name is `mdrouter`. Legacy aliases remain for backward compatibility.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
