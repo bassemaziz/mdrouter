@@ -11,6 +11,7 @@ from typing import Any, AsyncIterator
 import httpx
 from fastapi import HTTPException
 
+from mdrouter.adapters.anthropic_compat import AnthropicCompatibleAdapter
 from mdrouter.adapters.base import ProviderAdapter
 from mdrouter.adapters.openai_compat import OpenAICompatibleAdapter
 from mdrouter.adapters.openai_compat import QUIRK_NORMALIZE_MULTIMODAL_CONTENT
@@ -164,19 +165,34 @@ class ModelRouter:
 
     def _build_adapters(self) -> None:
         for provider_name, provider_cfg in self.config.providers.items():
-            if provider_cfg.type != "openai_compat":
+            if provider_cfg.type not in {"openai_compat", "anthropic_compat"}:
                 raise ValueError(f"Unsupported provider type '{provider_cfg.type}'.")
             timeout = provider_cfg.timeout or self.config.server.request_timeout
             quirks = self._default_provider_quirks(provider_name).union(
                 provider_cfg.quirks
             )
             self.provider_quirks[provider_name] = frozenset(quirks)
-            self.adapters[provider_name] = OpenAICompatibleAdapter(
-                base_url=provider_cfg.base_url,
-                headers=provider_cfg.resolve_headers(allow_missing_api_key=True),
-                timeout=timeout,
-                quirks=quirks,
-            )
+            if provider_cfg.type == "anthropic_compat":
+                # Find a model config for this provider to pass extra (max_output etc.)
+                model_extra: dict[str, Any] = {}
+                for _, mcfg in self.config.models.items():
+                    if mcfg.provider == provider_name:
+                        model_extra = dict(mcfg.extra)
+                        break
+                self.adapters[provider_name] = AnthropicCompatibleAdapter(
+                    base_url=provider_cfg.base_url,
+                    headers=provider_cfg.resolve_headers(allow_missing_api_key=True),
+                    timeout=timeout,
+                    quirks=quirks,
+                    model_extra=model_extra,
+                )
+            else:
+                self.adapters[provider_name] = OpenAICompatibleAdapter(
+                    base_url=provider_cfg.base_url,
+                    headers=provider_cfg.resolve_headers(allow_missing_api_key=True),
+                    timeout=timeout,
+                    quirks=quirks,
+                )
 
     def lookup_model_config(self, model_name: str) -> tuple[str, ModelConfig]:
         direct = self.config.models.get(model_name)

@@ -6,14 +6,21 @@
       "api_key_env": "DEEPSEEK_API_KEY",
       "wire_format": "openai_chat",
       "timeout": 90,
-      "quirks": ["require_reasoning_content_for_thinking"]
+      "quirks": [
+        "require_reasoning_content_for_thinking"
+      ]
     }
   },
   "models": {
     "deepseek/deepseek-v4-flash": {
       "provider": "deepseek",
       "upstream_model": "deepseek-v4-flash",
-      "capabilities": ["chat", "stream", "tools", "thinking"],
+      "capabilities": [
+        "chat",
+        "stream",
+        "tools",
+        "thinking"
+      ],
       "context_length": 1000000,
       "extra": {
         "description": "DeepSeek V4 Flash - fast, cost-effective model with thinking mode support",
@@ -23,7 +30,12 @@
     "deepseek/deepseek-v4-pro": {
       "provider": "deepseek",
       "upstream_model": "deepseek-v4-pro",
-      "capabilities": ["chat", "stream", "tools", "thinking"],
+      "capabilities": [
+        "chat",
+        "stream",
+        "tools",
+        "thinking"
+      ],
       "context_length": 1000000,
       "extra": {
         "description": "DeepSeek V4 Pro - flagship model with thinking mode support",

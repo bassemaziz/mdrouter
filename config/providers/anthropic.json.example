@@ -1,0 +1,44 @@
+{
+  "providers": {
+    "anthropic": {
+      "type": "anthropic_compat",
+      "base_url": "https://api.anthropic.com/v1",
+      "api_key_env": "ANTHROPIC_API_KEY",
+      "wire_format": "anthropic_messages",
+      "timeout": 120,
+      "quirks": []
+    }
+  },
+  "models": {
+    "anthropic/claude-opus-4-7": {
+      "provider": "anthropic",
+      "upstream_model": "claude-opus-4-7-20250805",
+      "capabilities": ["chat", "stream", "tools", "thinking", "vision"],
+      "context_length": 200000,
+      "extra": {
+        "description": "Claude Opus 4 (latest) — most capable model",
+        "max_output": 128000
+      }
+    },
+    "anthropic/claude-sonnet-4-6": {
+      "provider": "anthropic",
+      "upstream_model": "claude-sonnet-4-6-20250715",
+      "capabilities": ["chat", "stream", "tools", "thinking", "vision"],
+      "context_length": 200000,
+      "extra": {
+        "description": "Claude Sonnet 4 (latest) — balanced performance",
+        "max_output": 128000
+      }
+    },
+    "anthropic/claude-haiku-4-5": {
+      "provider": "anthropic",
+      "upstream_model": "claude-haiku-4-5-20250501",
+      "capabilities": ["chat", "stream", "tools"],
+      "context_length": 200000,
+      "extra": {
+        "description": "Claude Haiku 4 (latest) — fast and cost-effective",
+        "max_output": 8192
+      }
+    }
+  }
+}

@@ -5,6 +5,7 @@ import json
 import re
 import sys
 import time
+import uuid
 from pathlib import Path
 from typing import Any, AsyncIterator
 
@@ -15,7 +16,13 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from mdrouter.config import AppConfig
-from mdrouter.models import OllamaChatRequest, OllamaGenerateRequest
+from mdrouter.models import (
+    AnthropicChatRequest,
+    AnthropicContentBlock,
+    AnthropicMessage,
+    OllamaChatRequest,
+    OllamaGenerateRequest,
+)
 from mdrouter.runtime import RequestLogger
 from mdrouter.runtime import RuntimeSettings
 from mdrouter.router import ModelRouter
@@ -917,6 +924,498 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
             }
         )
         return JSONResponse(response)
+
+    # ---------- Anthropic ↔ internal conversion helpers ----------
+
+    def _anthropic_messages_to_openai(
+        messages: list[AnthropicMessage], system: str | list[dict[str, Any]] | None
+    ) -> list[dict[str, Any]]:
+        """Convert Anthropic messages to OpenAI-shaped internal format."""
+        result: list[dict[str, Any]] = []
+
+        # Inject system prompt as first message
+        if isinstance(system, str) and system.strip():
+            result.append({"role": "system", "content": system})
+        elif isinstance(system, list):
+            for block in system:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    text = block.get("text", "")
+                    if text.strip():
+                        result.append({"role": "system", "content": text})
+
+        for msg in messages:
+            role = msg.role
+            content = msg.content
+
+            if role == "assistant":
+                openai_msg: dict[str, Any] = {"role": "assistant"}
+                if isinstance(content, str):
+                    openai_msg["content"] = content
+                elif isinstance(content, list):
+                    text_parts: list[str] = []
+                    tool_calls: list[dict[str, Any]] = []
+                    for block in content:
+                        bt = block.type if isinstance(block, AnthropicContentBlock) else (block.get("type") if isinstance(block, dict) else "")
+                        if bt == "text":
+                            t = block.text if isinstance(block, AnthropicContentBlock) else (block.get("text") if isinstance(block, dict) else "")
+                            if t:
+                                text_parts.append(t)
+                        elif bt == "tool_use":
+                            blk_dict = block.model_dump() if isinstance(block, AnthropicContentBlock) else (block if isinstance(block, dict) else {})
+                            tool_calls.append({
+                                "id": blk_dict.get("id", ""),
+                                "type": "function",
+                                "function": {
+                                    "name": blk_dict.get("name", ""),
+                                    "arguments": json.dumps(blk_dict.get("input", {}), ensure_ascii=True),
+                                },
+                            })
+                    openai_msg["content"] = "\n".join(text_parts) if text_parts else ""
+                    if tool_calls:
+                        openai_msg["tool_calls"] = tool_calls
+                else:
+                    openai_msg["content"] = str(content) if content else ""
+                result.append(openai_msg)
+
+            elif role == "user":
+                if isinstance(content, list):
+                    # Separate tool_result blocks from regular content blocks.
+                    # Each tool_result becomes its own "tool" message so that
+                    # OpenAI providers see assistant(tool_calls) → tool → tool → ...
+                    text_parts: list[dict[str, Any]] = []
+                    for block in content:
+                        bt = block.type if isinstance(block, AnthropicContentBlock) else (block.get("type") if isinstance(block, dict) else "")
+                        if bt == "tool_result":
+                            blk_dict = block.model_dump() if isinstance(block, AnthropicContentBlock) else (block if isinstance(block, dict) else {})
+                            tc = blk_dict.get("content", "")
+                            if isinstance(tc, list):
+                                tc_text = "\n".join(
+                                    (c.get("text", "") if isinstance(c, dict) else str(c))
+                                    for c in tc
+                                )
+                            else:
+                                tc_text = str(tc)
+                            # Emit any pending text blocks as a user message first
+                            if text_parts:
+                                result.append({"role": "user", "content": text_parts})
+                                text_parts = []
+                            result.append({
+                                "role": "tool",
+                                "content": tc_text,
+                                "tool_call_id": blk_dict.get("tool_use_id", ""),
+                            })
+                        elif bt == "image":
+                            src = block.source if isinstance(block, AnthropicContentBlock) else (block.get("source") if isinstance(block, dict) else {})
+                            if isinstance(src, dict):
+                                media_type = src.get("media_type", "image/jpeg")
+                                data = src.get("data", "")
+                                url = f"data:{media_type};base64,{data}"
+                            else:
+                                url = str(src) if src else ""
+                            text_parts.append({"type": "image_url", "image_url": {"url": url}})
+                        elif bt == "text":
+                            t = block.text if isinstance(block, AnthropicContentBlock) else (block.get("text") if isinstance(block, dict) else "")
+                            text_parts.append({"type": "text", "text": t})
+                        else:
+                            text_parts.append({"type": "text", "text": str(block)})
+                    if text_parts:
+                        result.append({"role": "user", "content": text_parts})
+                elif isinstance(content, str):
+                    result.append({"role": "user", "content": content})
+                else:
+                    result.append({"role": "user", "content": str(content) if content else ""})
+
+        return result
+
+    def _anthropic_tools_to_openai(
+        tools: list[dict[str, Any]] | None,
+    ) -> list[dict[str, Any]] | None:
+        """Convert Anthropic tools to OpenAI format."""
+        if not tools:
+            return None
+        result: list[dict[str, Any]] = []
+        for tool in tools:
+            result.append({
+                "type": "function",
+                "function": {
+                    "name": tool.get("name", ""),
+                    "description": tool.get("description", ""),
+                    "parameters": tool.get("input_schema", {"type": "object", "properties": {}}),
+                },
+            })
+        return result
+
+    def _normalized_to_anthropic_response(
+        payload: dict[str, Any], *, model_name: str
+    ) -> dict[str, Any]:
+        """Convert router's normalized response to Anthropic Messages format."""
+        import uuid
+
+        message = payload.get("message") or {}
+        content_text = message.get("content", "")
+        tool_calls = message.get("tool_calls") or []
+
+        # Build Anthropic content blocks
+        content_blocks: list[dict[str, Any]] = []
+        if isinstance(content_text, str) and content_text.strip():
+            content_blocks.append({"type": "text", "text": content_text})
+
+        for tc in tool_calls:
+            func = tc.get("function", {})
+            try:
+                tool_input = json.loads(func.get("arguments", "{}"))
+            except (json.JSONDecodeError, TypeError):
+                tool_input = {}
+            content_blocks.append({
+                "type": "tool_use",
+                "id": tc.get("id", f"toolu_{uuid.uuid4().hex[:24]}"),
+                "name": func.get("name", ""),
+                "input": tool_input,
+            })
+
+        if not content_blocks:
+            content_blocks = [{"type": "text", "text": ""}]
+
+        # Map finish_reason
+        done_reason = payload.get("done_reason", "stop")
+        stop_reason_map = {
+            "stop": "end_turn",
+            "tool_calls": "tool_use",
+            "length": "max_tokens",
+        }
+        stop_reason = stop_reason_map.get(done_reason, done_reason)
+
+        # Map usage
+        usage = payload.get("usage") or {}
+        anthropic_usage = {
+            "input_tokens": usage.get("prompt_tokens", 0),
+            "output_tokens": usage.get("completion_tokens", 0),
+        }
+
+        return {
+            "id": f"msg_{uuid.uuid4().hex[:24]}",
+            "type": "message",
+            "role": "assistant",
+            "content": content_blocks,
+            "model": model_name,
+            "stop_reason": stop_reason,
+            "stop_sequence": None,
+            "usage": anthropic_usage,
+        }
+
+    # ---------- POST /v1/messages (Anthropic-compatible) ----------
+
+    @app.post("/v1/messages")
+    async def v1_messages(payload: AnthropicChatRequest, req: Request):
+        """Anthropic-compatible Messages endpoint for Claude Code etc."""
+        # Convert Anthropic messages → internal OpenAI format
+        openai_messages = _anthropic_messages_to_openai(
+            payload.messages, payload.system
+        )
+
+        # Build options dict from Anthropic request
+        options: dict[str, Any] = {}
+
+        if payload.tools:
+            openai_tools = _anthropic_tools_to_openai(
+                [t.model_dump() if hasattr(t, "model_dump") else t for t in payload.tools]
+            )
+            if openai_tools:
+                options["tools"] = openai_tools
+
+        if payload.tool_choice is not None:
+            options["tool_choice"] = payload.tool_choice
+
+        if payload.temperature is not None:
+            options["temperature"] = payload.temperature
+        if payload.top_p is not None:
+            options["top_p"] = payload.top_p
+        if payload.max_tokens:
+            options["max_tokens"] = payload.max_tokens
+        if payload.thinking is not None:
+            options["thinking"] = payload.thinking
+        if payload.stop_sequences:
+            options["stop"] = payload.stop_sequences
+
+        started = time.perf_counter()
+
+        if payload.stream:
+            cached_entries, meta = await stream_chat_result(
+                model=payload.model,
+                messages=openai_messages,
+                options=options or None,
+                format_name="anthropic_messages",
+            )
+            response_model_name = visible_model_name(payload.model, meta)
+
+            async def stream() -> AsyncIterator[str]:
+                if cached_entries:
+                    cached = cached_entries[0]
+                    anthropic_resp = _normalized_to_anthropic_response(
+                        cached, model_name=response_model_name
+                    )
+                    content_text = cached.get("message", {}).get("content", "")
+                    if content_text:
+                        msg_id = anthropic_resp["id"]
+                        yield f"event: message_start\ndata: {json.dumps({'type': 'message_start', 'message': {'id': msg_id, 'type': 'message', 'role': 'assistant', 'content': [], 'model': response_model_name, 'stop_reason': None, 'stop_sequence': None, 'usage': {'input_tokens': 0, 'output_tokens': 0}}})}\n\n"
+                        yield f"event: content_block_start\ndata: {json.dumps({'type': 'content_block_start', 'index': 0, 'content_block': {'type': 'text', 'text': ''}})}\n\n"
+                        yield f"event: content_block_delta\ndata: {json.dumps({'type': 'content_block_delta', 'index': 0, 'delta': {'type': 'text_delta', 'text': content_text}})}\n\n"
+                        yield f"event: content_block_stop\ndata: {json.dumps({'type': 'content_block_stop', 'index': 0})}\n\n"
+                        yield f"event: message_delta\ndata: {json.dumps({'type': 'message_delta', 'delta': {'stop_reason': anthropic_resp['stop_reason'], 'stop_sequence': None}, 'usage': anthropic_resp['usage']})}\n\n"
+                        yield f"event: message_stop\ndata: {json.dumps({'type': 'message_stop'})}\n\n"
+
+                    request_logger.write(
+                        {
+                            "path": "/v1/messages",
+                            "method": "POST",
+                            "model": payload.model,
+                            "model_alias": payload.model,
+                            "stream": True,
+                            "provider": meta.get("provider"),
+                            "upstream_model": meta.get("upstream_model"),
+                            "routed_model_alias": meta.get("routed_model_alias"),
+                            "cache_backend": meta.get("cache_backend"),
+                            "cache_hit": meta.get("cache_hit"),
+                            "cache_hit_type": meta.get("cache_hit"),
+                            "semantic_similarity": meta.get("similarity"),
+                            "semantic_eligible": meta.get("semantic_eligible"),
+                            "latency_ms": 0,
+                            "client": req.client.host if req.client else None,
+                            "status": 200,
+                            "event": "stream_cache_hit",
+                            **_request_telemetry(openai_messages, options or None),
+                        }
+                    )
+                    return
+
+                request_logger.write(
+                    {
+                        "path": "/v1/messages",
+                        "method": "POST",
+                        "model": payload.model,
+                        "model_alias": payload.model,
+                        "stream": True,
+                        "provider": meta.get("provider"),
+                        "upstream_model": meta.get("upstream_model"),
+                        "routed_model_alias": meta.get("routed_model_alias"),
+                        "cache_backend": meta.get("cache_backend"),
+                        "cache_hit": "miss",
+                        "cache_hit_type": "miss",
+                        "semantic_eligible": meta.get("semantic_eligible"),
+                        "client": req.client.host if req.client else None,
+                        "status": 200,
+                        "event": "stream_cache_miss",
+                        **_request_telemetry(openai_messages, options or None),
+                    }
+                )
+
+                stream_collected: list[str] = []
+                stream_usage: dict[str, Any] | None = None
+                message_start_sent = False
+                text_block_open = False
+                text_block_index = 0
+                tool_use_blocks: dict[int, dict[str, Any]] = {}
+                next_tool_index = 1
+                stop_reason = "end_turn"
+
+                try:
+                    async for chunk in router.chat_stream(
+                        model_alias=payload.model,
+                        messages=openai_messages,
+                        options=options or None,
+                    ):
+                        delta = chunk.get("delta") or {}
+                        content = chunk["message"]["content"]
+                        tool_calls_delta = delta.get("tool_calls") or []
+
+                        # message_start
+                        if not message_start_sent:
+                            message_start_sent = True
+                            yield f"event: message_start\ndata: {json.dumps({'type': 'message_start', 'message': {'id': f'msg_{uuid.uuid4().hex[:24]}', 'type': 'message', 'role': 'assistant', 'content': [], 'model': response_model_name, 'stop_reason': None, 'stop_sequence': None, 'usage': {'input_tokens': 0, 'output_tokens': 0}}})}\n\n"
+
+                        # Text content
+                        if content:
+                            if not text_block_open:
+                                text_block_open = True
+                                yield f"event: content_block_start\ndata: {json.dumps({'type': 'content_block_start', 'index': text_block_index, 'content_block': {'type': 'text', 'text': ''}})}\n\n"
+                            yield f"event: content_block_delta\ndata: {json.dumps({'type': 'content_block_delta', 'index': text_block_index, 'delta': {'type': 'text_delta', 'text': content}})}\n\n"
+                            stream_collected.append(content)
+
+                        # Tool calls — close text block first, then accumulate args
+                        if tool_calls_delta and text_block_open:
+                            yield f"event: content_block_stop\ndata: {json.dumps({'type': 'content_block_stop', 'index': text_block_index})}\n\n"
+                            text_block_open = False
+
+                        for tc in tool_calls_delta:
+                            tc_idx = tc.get("index", 0)
+                            tc_id = tc.get("id") or ""
+                            tc_name = tc.get("function", {}).get("name") or ""
+                            tc_args = tc.get("function", {}).get("arguments") or ""
+
+                            if tc_idx not in tool_use_blocks:
+                                tool_use_blocks[tc_idx] = {
+                                    "id": tc_id,
+                                    "name": tc_name,
+                                    "arguments": tc_args,
+                                }
+                                next_tool_index = max(next_tool_index, tc_idx + 1)
+                            else:
+                                if tc_id and not tool_use_blocks[tc_idx]["id"]:
+                                    tool_use_blocks[tc_idx]["id"] = tc_id
+                                if tc_name and not tool_use_blocks[tc_idx]["name"]:
+                                    tool_use_blocks[tc_idx]["name"] = tc_name
+                                tool_use_blocks[tc_idx]["arguments"] += tc_args
+
+
+                        # Done
+                        if chunk.get("done"):
+                            if text_block_open:
+                                yield f"event: content_block_stop\ndata: {json.dumps({'type': 'content_block_stop', 'index': text_block_index})}\n\n"
+                                text_block_open = False
+                            stop_reason_map = {
+                                "stop": "end_turn",
+                                "tool_calls": "tool_use",
+                                "length": "max_tokens",
+                            }
+                            stop_reason = stop_reason_map.get(
+                                chunk.get("done_reason", "stop"), "end_turn"
+                            )
+                            if isinstance(chunk.get("usage"), dict):
+                                stream_usage = chunk["usage"]
+
+                            # Emit accumulated tool_use blocks now that args are complete
+                            if tool_use_blocks:
+                                for tc_idx in sorted(tool_use_blocks.keys()):
+                                    tb = tool_use_blocks[tc_idx]
+                                    tc_index = text_block_index + 1 + tc_idx
+                                    yield f"event: content_block_start\ndata: {json.dumps({'type': 'content_block_start', 'index': tc_index, 'content_block': {'type': 'tool_use', 'id': tb['id'], 'name': tb['name'], 'input': {}}})}\n\n"
+                                    # Send accumulated args as partial JSON
+                                    try:
+                                        parsed = json.loads(tb['arguments'])
+                                        args_json = json.dumps(parsed, ensure_ascii=True)
+                                    except (json.JSONDecodeError, TypeError):
+                                        args_json = tb['arguments']
+                                    yield f"event: content_block_delta\ndata: {json.dumps({'type': 'content_block_delta', 'index': tc_index, 'delta': {'type': 'input_json_delta', 'partial_json': args_json}})}\n\n"
+                                    yield f"event: content_block_stop\ndata: {json.dumps({'type': 'content_block_stop', 'index': tc_index})}\n\n"
+
+                except HTTPException as exc:
+                    error_message = f"[upstream_error:{exc.status_code}] {exc.detail}"
+                    if not message_start_sent:
+                        message_start_sent = True
+                        yield f"event: message_start\ndata: {json.dumps({'type': 'message_start', 'message': {'id': f'msg_{uuid.uuid4().hex[:24]}', 'type': 'message', 'role': 'assistant', 'content': [], 'model': response_model_name, 'stop_reason': None, 'stop_sequence': None, 'usage': {'input_tokens': 0, 'output_tokens': 0}}})}\n\n"
+                    if not text_block_open:
+                        text_block_open = True
+                        yield f"event: content_block_start\ndata: {json.dumps({'type': 'content_block_start', 'index': text_block_index, 'content_block': {'type': 'text', 'text': ''}})}\n\n"
+                    yield f"event: content_block_delta\ndata: {json.dumps({'type': 'content_block_delta', 'index': text_block_index, 'delta': {'type': 'text_delta', 'text': error_message}})}\n\n"
+                    yield f"event: content_block_stop\ndata: {json.dumps({'type': 'content_block_stop', 'index': text_block_index})}\n\n"
+                    stop_reason = "end_turn"
+
+                anthropic_usage: dict[str, Any] = {"input_tokens": 0, "output_tokens": 0}
+                if isinstance(stream_usage, dict):
+                    anthropic_usage = {
+                        "input_tokens": stream_usage.get("prompt_tokens", 0),
+                        "output_tokens": stream_usage.get("completion_tokens", 0),
+                    }
+
+                yield f"event: message_delta\ndata: {json.dumps({'type': 'message_delta', 'delta': {'stop_reason': stop_reason, 'stop_sequence': None}, 'usage': anthropic_usage})}\n\n"
+                yield f"event: message_stop\ndata: {json.dumps({'type': 'message_stop'})}\n\n"
+
+                request_logger.write(
+                    {
+                        "path": "/v1/messages",
+                        "method": "POST",
+                        "model": payload.model,
+                        "model_alias": payload.model,
+                        "stream": True,
+                        "provider": meta.get("provider"),
+                        "upstream_model": meta.get("upstream_model"),
+                        "routed_model_alias": meta.get("routed_model_alias"),
+                        "client": req.client.host if req.client else None,
+                        "status": 200,
+                        "event": "stream_done",
+                        "prompt_tokens": (stream_usage or {}).get("prompt_tokens"),
+                        "completion_tokens": (stream_usage or {}).get("completion_tokens"),
+                        "cached_tokens": cached_tokens_from_usage(stream_usage),
+                        "response_body": {"content": "".join(stream_collected)}
+                        if runtime.log_response_body
+                        else None,
+                        **_request_telemetry(openai_messages, options or None),
+                    }
+                )
+
+            request_logger.write(
+                {
+                    "path": "/v1/messages",
+                    "method": "POST",
+                    "model": payload.model,
+                    "model_alias": payload.model,
+                    "stream": True,
+                    "client": req.client.host if req.client else None,
+                    "event": "request_start",
+                    "request_body": payload.model_dump()
+                    if runtime.log_request_body
+                    else None,
+                    **_request_telemetry(openai_messages, options or None),
+                }
+            )
+            return StreamingResponse(stream(), media_type="text/event-stream")
+
+        # Non-streaming
+        chat_payload, meta = await router.chat_once(
+            model_alias=payload.model,
+            messages=openai_messages,
+            options=options or None,
+        )
+        response_model_name = visible_model_name(payload.model, meta)
+        anthropic_resp = _normalized_to_anthropic_response(
+            chat_payload, model_name=response_model_name
+        )
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+        usage = chat_payload.get("usage") or {}
+        request_logger.write(
+            {
+                "path": "/v1/messages",
+                "method": "POST",
+                "model": payload.model,
+                "model_alias": payload.model,
+                "stream": False,
+                "provider": meta.get("provider"),
+                "upstream_model": meta.get("upstream_model"),
+                "routed_model_alias": meta.get("routed_model_alias"),
+                "cache_backend": meta.get("cache_backend"),
+                "cache_hit": meta.get("cache_hit"),
+                "cache_hit_type": meta.get("cache_hit"),
+                "semantic_similarity": meta.get("similarity"),
+                "semantic_eligible": meta.get("semantic_eligible"),
+                "latency_ms": meta.get("latency_ms", elapsed_ms),
+                "client": req.client.host if req.client else None,
+                "prompt_tokens": usage.get("prompt_tokens"),
+                "completion_tokens": usage.get("completion_tokens"),
+                "cached_tokens": cached_tokens_from_usage(usage),
+                "status": 200,
+                "response_body": anthropic_resp
+                if runtime.log_response_body
+                else None,
+                "request_body": payload.model_dump()
+                if runtime.log_request_body
+                else None,
+                **_request_telemetry(openai_messages, options or None),
+            }
+        )
+        return JSONResponse(anthropic_resp)
+
+    @app.get("/v1/models")
+    async def v1_models() -> dict[str, Any]:
+        """Anthropic-compatible list models endpoint for Claude Code validation."""
+        model_list: list[dict[str, Any]] = []
+        for alias, model_cfg in router.config.models.items():
+            model_list.append({
+                "id": model_cfg.upstream_model,
+                "display_name": alias,
+                "type": "model",
+                "created_at": "2025-01-01T00:00:00Z",
+            })
+        return {"data": model_list, "has_more": False, "first_id": model_list[0]["id"] if model_list else None, "last_id": model_list[-1]["id"] if model_list else None}
 
     return app
 
