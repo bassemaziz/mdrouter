@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SERVICE_NAME="${MDR_SERVICE_NAME:-mdrouter@${USER}.service}"
+MCP_SERVICE_NAME="${MDR_MCP_SERVICE_NAME:-mdrouter-mcp@${USER}.service}"
 ROOT_DIR="${MDR_ROOT_DIR:-/opt/mdrouter}"
 PYTHON_BIN="${MDR_PYTHON_BIN:-${ROOT_DIR}/.venv/bin/python}"
 LOG_FILE="${MDR_LOG_FILE:-${ROOT_DIR}/logs/router_requests.jsonl}"
@@ -9,24 +10,73 @@ PRICING_FILE="${MDR_PRICING_FILE:-${ROOT_DIR}/config/pricing.example.json}"
 
 usage() {
   cat <<'EOF'
-mdrouterctl system helper
+mdrouterctl — manage mdrouter and mdrouter-mcp services
 
 Usage:
-  mdrouterctl start
-  mdrouterctl stop
-  mdrouterctl restart
-  mdrouterctl status
-  mdrouterctl logs
-  mdrouterctl cost [hours]
-  mdrouterctl stats [hours]
-  mdrouterctl cachestatus [hours]
+  mdrouterctl start|stop|restart|status|logs          Router service
+  mdrouterctl mcp start|stop|restart|status|logs      MCP service
+  mdrouterctl cost [hours]                             Router cost report
+  mdrouterctl stats [hours]                            Router stats
+  mdrouterctl cachestatus [hours]                      Router cache report
+  mdrouterctl mcp crawl <name>                         Trigger doc re-crawl
+  mdrouterctl mcp search <query>                       Search docs
+  mdrouterctl mcp sources                              List doc sources
 
 Environment overrides:
-  MDR_SERVICE_NAME, MDR_ROOT_DIR, MDR_PYTHON_BIN, MDR_LOG_FILE, MDR_PRICING_FILE
+  MDR_SERVICE_NAME, MDR_MCP_SERVICE_NAME, MDR_ROOT_DIR,
+  MDR_PYTHON_BIN, MDR_LOG_FILE, MDR_PRICING_FILE, MDR_MCP_URL
 EOF
 }
 
 cmd="${1:-}"
+
+# ── MCP sub-commands ──────────────────────────────────────────
+if [[ "${cmd}" == "mcp" ]]; then
+  subcmd="${2:-}"
+  case "${subcmd}" in
+    start)
+      sudo systemctl start "${MCP_SERVICE_NAME}"
+      ;;
+    stop)
+      sudo systemctl stop "${MCP_SERVICE_NAME}"
+      ;;
+    restart)
+      sudo systemctl restart "${MCP_SERVICE_NAME}"
+      ;;
+    status)
+      sudo systemctl status "${MCP_SERVICE_NAME}" --no-pager
+      ;;
+    logs)
+      sudo journalctl -u "${MCP_SERVICE_NAME}" -f
+      ;;
+    crawl)
+      name="${3:-}"
+      if [[ -z "${name}" ]]; then
+        echo "Usage: mdrouterctl mcp crawl <source-name>"
+        exit 1
+      fi
+      "${PYTHON_BIN}" -m mdrouter.mcp --crawl "${name}"
+      ;;
+    search)
+      query="${3:-}"
+      if [[ -z "${query}" ]]; then
+        echo "Usage: mdrouterctl mcp search <query>"
+        exit 1
+      fi
+      "${PYTHON_BIN}" -m mdrouter.mcp --search "${query}"
+      ;;
+    sources)
+      "${PYTHON_BIN}" -m mdrouter.mcp --sources
+      ;;
+    *)
+      usage
+      exit 1
+      ;;
+  esac
+  exit 0
+fi
+
+# ── Router service commands ───────────────────────────────────
 case "${cmd}" in
   start)
     sudo systemctl start "${SERVICE_NAME}"

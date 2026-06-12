@@ -30,8 +30,14 @@ dependencies = [
 [project.scripts]
 mdrouter = "mdrouter.main:main"
 mdrouterctl = "mdrouter.ops:main"
+mdrouter-mcp = "mdrouter.mcp:main"
 
 [project.optional-dependencies]
+mcp = [
+  "mcp>=1.0,<2",
+  "aiosqlite>=0.20",
+  "trafilatura>=1.12",
+]
 dev = [
   "detect-secrets>=1.5.0",
   "pip-audit>=2.7.0",
@@ -47,4 +53,4 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 
 [tool.setuptools]
-packages = ["mdrouter", "mdrouter.adapters"]
+packages = ["mdrouter", "mdrouter.adapters", "mdrouter.mcp", "mdrouter.mcp.framework", "mdrouter.mcp.capabilities", "mdrouter.mcp.capabilities.docs"]

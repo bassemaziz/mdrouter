@@ -35,3 +35,9 @@ pip-wheel-metadata/
 # OS noise
 .DS_Store
 Thumbs.db
+
+# MCP crawled docs database — protected, never delete
+data/*.db
+data/*.db-wal
+data/*.db-shm
+!data/.gitkeep

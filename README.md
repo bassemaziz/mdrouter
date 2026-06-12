@@ -1,255 +1,179 @@
 # mdrouter
 
-mdrouter is an OpenAI/Ollama/Anthropic-compatible multi-provider LLM router focused on predictable operations, lower cost, and low-latency routing.
+Multi-provider LLM router + MCP documentation server for AI coding agents.
 
-## Documentation
+## Overview
 
-- Product roadmap: [ROADMAP.md](ROADMAP.md)
-- Contribution guide: [CONTRIBUTING.md](CONTRIBUTING.md)
+mdrouter does two things:
 
-## Key Features
-
-- Ollama-compatible APIs: `/api/tags`, `/api/chat`, `/api/generate`, `/api/version`
-- OpenAI-compatible API: `/v1/chat/completions`
-- Anthropic-compatible API: `/v1/messages` (for Claude Code, etc.)
-- Provider-agnostic alias routing (`provider/model`)
-- Model metadata and visible IDs use provider-prefixed aliases to avoid cross-provider name collisions
-- Smart virtual alias: `mdrouter/auto`
-- JSONL request logging with operational metrics
-- Operator CLI for request, cache, and token/cost visibility
+1. **LLM Router** — OpenAI/Ollama/Anthropic-compatible HTTP API that routes chat requests across multiple providers (DeepSeek, Novita, Go, Anthropic, Ark, Fireworks, Zen) using provider-prefixed model aliases.
+2. **MCP Doc Server** — Pluggable MCP server that gives AI coding agents (Claude Code, Cursor, Codex) live documentation crawling, full-text search, and on-demand summarization.
 
 ## Quick Start
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-cp .env.example .env
-python3 -m mdrouter --config config/providers.json
+# Setup
+make setup-mcp              # venv + dev + MCP dependencies
+
+# Router (HTTP API on :11435)
+make run                    # python -m mdrouter --config config/providers.json
+
+# MCP Server (stdio — for AI coding tools)
+make run-mcp                # python -m mdrouter.mcp
+
+# MCP Server (HTTP — for systemd)
+make run-mcp-http           # python -m mdrouter.mcp --transport streamable-http
 ```
 
-Default endpoint: `http://127.0.0.1:11435`
+Default endpoints: router on `127.0.0.1:11435`, MCP on `127.0.0.1:11436`.
 
-## Configuration Model
+## LLM Router
 
-Provider configuration is split for clarity:
+### Supported APIs
 
-- `config/providers.json`: global routing + provider file references
-- `config/providers/novita.json`: Novita provider + models
-- `config/providers/go.json`: Go provider + models
-- `config/providers/anthropic.json.example`: Anthropic provider + models (copy to `providers/anthropic.json` to enable)
+| Endpoint | Protocol |
+|----------|----------|
+| `/v1/chat/completions` | OpenAI-compatible |
+| `/v1/messages` | Anthropic-compatible (Claude Code, etc.) |
+| `/api/chat`, `/api/generate`, `/api/tags` | Ollama-compatible |
 
-Enable runtime providers with:
+### Model Routing
+
+Models use provider-prefixed aliases: `deepseek/deepseek-v4-flash`, `anthropic/claude-sonnet-4-6`, `go/qwen3.5-plus`.
 
 ```bash
-ROUTER_ENABLED_PROVIDERS=novita,go
+curl -s http://127.0.0.1:11435/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "deepseek/deepseek-v4-flash", "messages": [{"role": "user", "content": "Hello"}]}'
 ```
 
-Required API keys:
+`mdrouter/auto` is a virtual alias that classifies requests (`default_coding`, `heavy_refactor`, `long_context`, `tool_heavy`) and picks the best configured model automatically.
 
-- `NOVITA_API_KEY`
-- `OPENCODE_GO_API_KEY`
-- `ANTHROPIC_API_KEY` (when using Anthropic provider)
+### Configuration
 
-## Runtime Environment Variables
-
-### Server
+Split across `config/providers.json` (routing) and `config/providers/*.json` (per-provider model definitions). Runtime controlled via `ROUTER_*` env vars:
 
 ```bash
+ROUTER_ENABLED_PROVIDERS=deepseek,go
 ROUTER_HOST=127.0.0.1
 ROUTER_PORT=11435
-ROUTER_REQUEST_TIMEOUT=90
-ROUTER_BIND_LOCALHOST_ONLY=true
 ```
 
-### Logging
+Required API keys: `DEEPSEEK_API_KEY`, `NOVITA_API_KEY`, `OPENCODE_GO_API_KEY`, `ANTHROPIC_API_KEY`, etc.
+
+### Operations CLI
 
 ```bash
-ROUTER_LOG_ENABLED=true
-ROUTER_LOG_FILE=logs/router_requests.jsonl
-ROUTER_LOG_REQUEST_BODY=false
-ROUTER_LOG_RESPONSE_BODY=false
+mdrouterctl status --hours 24          # Traffic, cache, cost summary
+mdrouterctl stats --hours 24           # Per-model statistics
+mdrouterctl cachestatus --hours 24     # Cache hit-rate analysis
+mdrouterctl start|stop|restart|logs    # Service management
 ```
 
-### Router Cache (Temporarily Disabled by Default)
+## MCP Documentation Server
+
+A pluggable MCP server that lets AI coding agents search and crawl documentation live. Inspired by Context7, powered by the existing router for LLM summarization.
+
+### Tools for AI Agents
+
+| Tool | Purpose |
+|------|---------|
+| `doc_search(query, source?, limit)` | Full-text search crawled docs with ranked snippets |
+| `doc_crawl(url, name)` | Crawl a documentation site and index it |
+| `doc_sources()` | List all indexed sources with page counts and status |
+| `doc_refresh(name?)` | Re-crawl one or all sources for latest content |
+| `doc_page(url)` | Retrieve full page content + summaries by URL |
+
+### Quick Example
 
 ```bash
-ROUTER_CACHE_FORCE_OFF=true
-ROUTER_CACHE_ENABLED=false
-ROUTER_CACHE_BACKEND=redis
-ROUTER_CACHE_PROFILE=production
-ROUTER_CACHE_TTL_SEC=3600
-ROUTER_CACHE_MAX_ENTRIES=5000
-ROUTER_REDIS_URL=redis://127.0.0.1:6385/0
-ROUTER_REDIS_HOST=127.0.0.1
-ROUTER_REDIS_PORT=6385
-ROUTER_REDIS_DB=0
-ROUTER_REDIS_PREFIX=mdrouter_cache
+# Crawl a site via CLI
+python -m mdrouter.mcp --crawl nextjs
+
+# Search from CLI
+python -m mdrouter.mcp --search "server components"
+
+# List all sources
+python -m mdrouter.mcp --sources
 ```
 
-Notes:
-- `ROUTER_CACHE_FORCE_OFF=true` forces router response cache off (exact + semantic).
-- Set `ROUTER_CACHE_FORCE_OFF=false` only when you explicitly want to re-enable cache behavior.
-- `ROUTER_REDIS_URL` takes precedence over host/port/db fields.
+When the MCP server is connected to an AI coding agent, these are available as native tools. The crawler auto-discovers pages via `llms.txt` (used by Next.js, Astro, Mintlify) or `sitemap.xml`, extracts content, and indexes it in SQLite with FTS5 full-text search.
 
-### Semantic Cache Controls
+### Architecture
 
-```bash
-ROUTER_SEM_CACHE_ENABLED=false
-ROUTER_SEM_CACHE_THRESHOLD=0.93
-ROUTER_SEM_CACHE_LATEST_USER_THRESHOLD=0.30
-ROUTER_SEM_CACHE_MAX_TURNS=3
-ROUTER_SEM_CACHE_INCLUDE_ASSISTANT=false
-ROUTER_SEM_CACHE_SINGLE_TURN_ONLY=false
+```
+AI Coding Agent
+    │ STDIO or HTTP (MCP protocol)
+    ▼
+mdrouter/mcp/server.py         FastMCP — tools, resources, lifecycle
+mdrouter/mcp/capabilities/     Pluggable capability modules
+    docs/crawler.py             Async crawler (llms.txt + sitemap + trafilatura)
+    docs/store.py               SQLite + FTS5 (zero-dependency search)
+    docs/summarizer.py          LLM summarization via shared ModelRouter
+mdrouter/mcp/framework/        Reusable infrastructure
+    capability.py               Capability ABC — add new modules in one file
+    store.py                    Namespaced SQLiteStore with FTS5 helpers
+    scheduler.py                Recurring task runner with jitter + backoff
+    config.py                   MCPConfig + SummarizationConfig
 ```
 
-### Provider Prompt Cache Hints
+Adding a new capability (e.g. Git, Jira) requires one module implementing the `Capability` ABC — no server changes.
 
-```bash
-ROUTER_PROMPT_CACHE_KEY_ENABLED=true
-ROUTER_PROMPT_CACHE_RETENTION=
-ROUTER_ALIBABA_EXPLICIT_CACHE=false
-```
+### Cost-Saving Design
 
-## Smart Routing with mdrouter/auto
+- **Content hash dedup** — never re-process or re-store unchanged pages
+- **Cache-first summarization** — skip chunks that already have summaries
+- **Daily token budget** — hard cap on LLM summarization spend, resets daily
+- **Summarization off toggle** — set `enabled: false` to eliminate all LLM costs
+- **Chunk truncation** — cap tokens per LLM call
+- **FTS5 zero-cost search** — no embedding API needed
+- **llms.txt discovery** — 1 HTTP request replaces hundreds of discovery requests
+- **Scheduler jitter** — prevents thundering herd on re-crawls
 
-`mdrouter/auto` is a virtual alias that classifies requests and selects a concrete configured alias.
-
-Request classes:
-
-- `default_coding`
-- `heavy_refactor`
-- `long_context`
-- `tool_heavy`
-
-Common controls:
-
-```bash
-ROUTER_AUTO_POLICY=cost_first
-ROUTER_AUTO_FREE_STRATEGY=round_robin
-ROUTER_AUTO_FREE_CANDIDATES=go/gpt-5-nano-free,go/big-pickle-free
-ROUTER_AUTO_DEFAULT_CANDIDATES=go/qwen3.5-plus
-ROUTER_AUTO_HEAVY_REFACTOR_CANDIDATES=go/qwen3.6-plus,go/deepseek-v4-pro
-ROUTER_AUTO_LONG_CONTEXT_CANDIDATES=go/mimo-v2.5-pro,go/deepseek-v4-pro
-ROUTER_AUTO_TOOL_HEAVY_CANDIDATES=go/glm-5.1,go/kimi-k2.6
-ROUTER_AUTO_CONTEXT_LENGTH=1048576
-```
-
-## Operations
-
-Use either `mdrouterctl` or `mdrouter` command aliases:
-
-```bash
-mdrouterctl status --hours 24 --log-file logs/router_requests.jsonl
-mdrouterctl stats --hours 24 --log-file logs/router_requests.jsonl
-mdrouterctl cachestatus --hours 24 --log-file logs/router_requests.jsonl
-```
-
-With optional pricing file:
-
-```bash
-mdrouterctl status --hours 24 --pricing config/pricing.example.json
-```
-
-## Systemd Deployment
-
-A starter unit is included at `systemd/mdrouter@.service`.
-
-The unit includes a self-healing `ExecStartPre` step that terminates stale `python -m mdrouter`
-listeners on port `11435` before startup, preventing restart loops caused by `address already in use`.
+### Systemd Deployment
 
 ```bash
 sudo cp systemd/mdrouter@.service /etc/systemd/system/
-sudo chmod +x systemd/mdrouterctl
+sudo cp systemd/mdrouter-mcp@.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable mdrouter@${USER}.service
-sudo systemctl start mdrouter@${USER}.service
+sudo systemctl enable --now mdrouter@${USER}.service
+sudo systemctl enable --now mdrouter-mcp@${USER}.service
 
-# If the unit file already exists, re-copy it before reload/restart:
-sudo cp systemd/mdrouter@.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl restart mdrouter@${USER}.service
+# Or use the wrapper
+mdrouterctl start           # Router
+mdrouterctl mcp start       # MCP server
+mdrouterctl mcp crawl nextjs  # Trigger re-crawl
+mdrouterctl mcp search "async" # Search docs
 ```
 
-## Anthropic-compatible API (`POST /v1/messages`)
+### Configuration (config/mcp.json)
 
-mdrouter exposes an Anthropic-compatible Messages endpoint for tools that speak the Anthropic protocol, including Claude Code.
-
-```bash
-curl -s http://127.0.0.1:11435/v1/messages \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "anthropic/claude-sonnet-4-6",
-    "messages": [{"role": "user", "content": "Hello"}],
-    "max_tokens": 256
-  }' | jq .
+```json
+{
+  "enabled_capabilities": ["docs"],
+  "transport": "stdio",
+  "host": "127.0.0.1",
+  "port": 11436,
+  "summarization": {
+    "enabled": true,
+    "model": "deepseek/deepseek-v4-flash",
+    "max_tokens_per_day": 200000
+  },
+  "capabilities": {
+    "docs": {
+      "crawl_interval_hours": 24,
+      "max_pages_per_site": 500
+    }
+  }
+}
 ```
-
-Supported for both streaming (`stream: true`) and non-streaming requests.
-
-## Claude Code with mdrouter
-
-Use this when you want Claude Code to talk to mdrouter while mdrouter routes to your configured providers.
-
-### 1) Start mdrouter
-
-```bash
-python3 -m mdrouter --config config/providers.json
-```
-
-### 2) Configure Claude Code environment
-
-```bash
-export ANTHROPIC_BASE_URL="http://127.0.0.1:11435"
-export ANTHROPIC_AUTH_TOKEN="mdrouter-local-token"
-unset ANTHROPIC_API_KEY
-```
-
-Notes:
-- Use exactly one auth mechanism in your shell session for Claude Code.
-- Prefer `ANTHROPIC_AUTH_TOKEN` for local mdrouter.
-- If `ANTHROPIC_API_KEY` is set at the same time, some clients can pick the wrong credential path.
-
-### 3) Run Claude Code against a routed alias
-
-```bash
-claude --model anthropic/claude-sonnet-4-6
-```
-
-Best practices:
-- Use provider-prefixed aliases (`provider/model`) to avoid ambiguity.
-- Keep `strict_provider_prefix` enabled in routing config for deterministic model resolution.
-- Verify available routed models with:
-
-```bash
-curl -s http://127.0.0.1:11435/v1/models | jq .
-```
-
-### 4) Troubleshooting
-
-```bash
-# Service status
-mdrouterctl status --hours 1 --log-file logs/router_requests.jsonl
-
-# Recent request events
-tail -n 50 logs/router_requests.jsonl
-```
-
-Common issues:
-- 401/403 from client: check token env vars and clear conflicting auth vars.
-- Unknown model: use a configured alias from `/v1/models`.
-- Tool-call errors: confirm the selected model has `tools` capability in provider config.
 
 ## Development
 
 ```bash
-pytest
-make precommit
+make test           # Full suite (128 tests)
+make precommit      # Lint + format + audit + test
 ```
-
-## Compatibility
-
-The canonical package name is `mdrouter`. Legacy aliases remain for backward compatibility.
 
 ## License
 

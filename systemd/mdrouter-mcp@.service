@@ -1,0 +1,28 @@
+[Unit]
+Description=mdrouter MCP Server (Documentation + AI Agent Tools)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/home/bassem/Documents/dev/mdrouter
+EnvironmentFile=/home/bassem/Documents/dev/mdrouter/.env
+Environment=ROUTER_MCP_CONFIG=/home/bassem/Documents/dev/mdrouter/config/mcp.json
+Environment=ROUTER_CONFIG=/home/bassem/Documents/dev/mdrouter/config/providers.json
+Environment=ROUTER_MCP_TRANSPORT=streamable-http
+ExecStart=/home/bassem/Documents/dev/mdrouter/.venv/bin/python -m mdrouter.mcp --transport streamable-http --host 127.0.0.1 --port 11436
+Restart=always
+RestartSec=3
+KillSignal=SIGINT
+TimeoutStopSec=20
+
+# Tighten defaults while allowing outbound HTTP for crawling and LLM calls
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/home/bassem/Documents/dev/mdrouter/data /home/bassem/Documents/dev/mdrouter/logs
+
+[Install]
+WantedBy=multi-user.target
