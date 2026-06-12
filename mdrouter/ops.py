@@ -101,6 +101,8 @@ def _status(args: argparse.Namespace) -> int:
             "prompt_tokens": 0,
             "completion_tokens": 0,
             "cached_tokens": 0,
+            "upstream_cache_hit_tokens": 0,
+            "upstream_cache_miss_tokens": 0,
             "estimated_cost": 0.0,
             "cache_exact": 0,
             "cache_semantic": 0,
@@ -114,6 +116,8 @@ def _status(args: argparse.Namespace) -> int:
         "prompt_tokens": 0,
         "completion_tokens": 0,
         "cached_tokens": 0,
+        "upstream_cache_hit_tokens": 0,
+        "upstream_cache_miss_tokens": 0,
         "estimated_cost": 0.0,
         "cache_exact": 0,
         "cache_semantic": 0,
@@ -159,14 +163,20 @@ def _status(args: argparse.Namespace) -> int:
         prompt_tokens = int(rec.get("prompt_tokens") or 0)
         completion_tokens = int(rec.get("completion_tokens") or 0)
         cached_tokens = int(rec.get("cached_tokens") or 0)
+        upstream_cache_hit = int(rec.get("upstream_cache_hit_tokens") or 0)
+        upstream_cache_miss = int(rec.get("upstream_cache_miss_tokens") or 0)
 
         if prompt_tokens or completion_tokens or cached_tokens:
             model_stats[model]["prompt_tokens"] += prompt_tokens
             model_stats[model]["completion_tokens"] += completion_tokens
             model_stats[model]["cached_tokens"] += cached_tokens
+            model_stats[model]["upstream_cache_hit_tokens"] += upstream_cache_hit
+            model_stats[model]["upstream_cache_miss_tokens"] += upstream_cache_miss
             totals["prompt_tokens"] += prompt_tokens
             totals["completion_tokens"] += completion_tokens
             totals["cached_tokens"] += cached_tokens
+            totals["upstream_cache_hit_tokens"] += upstream_cache_hit
+            totals["upstream_cache_miss_tokens"] += upstream_cache_miss
 
             price = _price_for_model(model, default_price, model_prices)
             if price is not None:
@@ -184,6 +194,11 @@ def _status(args: argparse.Namespace) -> int:
     print(f"  Prompt tokens:      {_fmt_num(totals['prompt_tokens'])}")
     print(f"  Completion tokens:  {_fmt_num(totals['completion_tokens'])}")
     print(f"  Cached tokens:      {_fmt_num(totals['cached_tokens'])}")
+    hit = totals["upstream_cache_hit_tokens"]
+    miss = totals["upstream_cache_miss_tokens"]
+    total_upstream = hit + miss
+    ratio_str = f"{hit / total_upstream * 100:.1f}%" if total_upstream else "n/a"
+    print(f"  Upstream cache:     hit={_fmt_num(hit)} miss={_fmt_num(miss)} ratio={ratio_str}")
     print(f"  Cache exact hits:   {_fmt_num(totals['cache_exact'])}")
     print(f"  Cache semantic:     {_fmt_num(totals['cache_semantic'])}")
     print(f"  Cache misses:       {_fmt_num(totals['cache_miss'])}")
@@ -203,6 +218,11 @@ def _status(args: argparse.Namespace) -> int:
         print(f"    prompt_tokens:    {_fmt_num(stat['prompt_tokens'])}")
         print(f"    completion_tokens:{_fmt_num(stat['completion_tokens'])}")
         print(f"    cached_tokens:    {_fmt_num(stat['cached_tokens'])}")
+        up_hit = stat["upstream_cache_hit_tokens"]
+        up_miss = stat["upstream_cache_miss_tokens"]
+        up_total = up_hit + up_miss
+        up_ratio = f"{up_hit / up_total * 100:.1f}%" if up_total else "n/a"
+        print(f"    upstream_cache:   hit={_fmt_num(up_hit)} miss={_fmt_num(up_miss)} ratio={up_ratio}")
         print(f"    cache_exact:      {_fmt_num(stat['cache_exact'])}")
         print(f"    cache_semantic:   {_fmt_num(stat['cache_semantic'])}")
         print(f"    cache_miss:       {_fmt_num(stat['cache_miss'])}")

@@ -59,6 +59,8 @@ class ProviderConfig(BaseModel):
     wire_format: str = "openai_chat"
     timeout: float | None = None
     quirks: set[str] = Field(default_factory=set)
+    prompt_cache_key_template: str | None = None
+    prompt_cache_retention: str | None = None
 
     def resolve_headers(self, *, allow_missing_api_key: bool = True) -> dict[str, str]:
         result = dict(self.headers)

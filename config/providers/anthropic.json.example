@@ -6,7 +6,7 @@
       "api_key_env": "ANTHROPIC_API_KEY",
       "wire_format": "anthropic_messages",
       "timeout": 120,
-      "quirks": []
+      "quirks": ["anthropic_explicit_cache"]
     }
   },
   "models": {

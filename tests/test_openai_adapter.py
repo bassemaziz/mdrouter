@@ -305,3 +305,97 @@ async def test_chat_stream_parses_data_prefix_without_space() -> None:
     assert len(chunks) == 2
     assert chunks[0]["choices"][0]["delta"]["content"] == "Hi"
     assert chunks[1]["choices"][0]["finish_reason"] == "stop"
+
+
+def test_prepare_messages_is_idempotent():
+    """Normalization must produce identical output when re-applied — this is
+    the foundation for upstream prefix-cache stability."""
+    adapter = OpenAICompatibleAdapter(
+        base_url="http://upstream.test/v1",
+        headers={},
+        timeout=5,
+    )
+    messages = [
+        {"role": "system", "content": "You are helpful."},
+        {"role": "user", "content": "Hello"},
+        {"role": "assistant", "content": "Hi there!"},
+        {"role": "user", "content": "What's the weather?"},
+    ]
+    first = adapter._prepare_messages(messages)
+    second = adapter._prepare_messages(messages)
+    assert len(first) == len(second)
+    for i, (a, b) in enumerate(zip(first, second)):
+        assert a == b, f"Message {i} differs: {a!r} != {b!r}"
+
+
+def test_prepare_messages_multi_turn_prefix_stable():
+    """In a multi-turn conversation, message prefixes must be byte-identical
+    between turn N-1 (full history) and turn N (history + new message)."""
+    adapter = OpenAICompatibleAdapter(
+        base_url="http://upstream.test/v1",
+        headers={},
+        timeout=5,
+    )
+    turn1 = [
+        {"role": "system", "content": "You are helpful."},
+        {"role": "user", "content": "Hello"},
+    ]
+    turn2 = [
+        {"role": "system", "content": "You are helpful."},
+        {"role": "user", "content": "Hello"},
+        {"role": "assistant", "content": "Hi there!"},
+        {"role": "user", "content": "What's the weather?"},
+    ]
+    t1_result = adapter._prepare_messages(turn1)
+    t2_result = adapter._prepare_messages(turn2)
+    # The prefix of turn2's result must equal turn1's full result
+    assert t2_result[: len(t1_result)] == t1_result, (
+        f"Prefix mismatch: turn2 prefix != turn1 result"
+    )
+
+
+def test_stable_prefix_quirk_skips_prefix_normalization():
+    """With QUIRK_STABLE_PREFIX, only the last message is normalized; earlier
+    messages pass through verbatim as shallow copies."""
+    adapter = OpenAICompatibleAdapter(
+        base_url="http://upstream.test/v1",
+        headers={},
+        timeout=5,
+        quirks={"stable_prefix"},
+    )
+    messages = [
+        {"role": "system", "content": "You are helpful."},
+        {"role": "user", "content": "Hello"},
+        {"role": "assistant", "content": "Hi there!"},
+        {"role": "user", "content": "What's the weather?"},
+    ]
+    result = adapter._prepare_messages(messages)
+    # First 3 messages should be shallow-copy-identical to input
+    for i in range(len(messages) - 1):
+        # Must be a different object (shallow copy) but equal content
+        assert result[i] is not messages[i], f"Message {i} not copied"
+        assert result[i] == messages[i], f"Message {i} mutated"
+
+
+def test_stable_prefix_with_thinking_is_idempotent():
+    """QUIRK_STABLE_PREFIX + thinking mode: assistant messages with reasoning_content
+    already set must not be re-injected."""
+    adapter = OpenAICompatibleAdapter(
+        base_url="http://upstream.test/v1",
+        headers={},
+        timeout=5,
+        quirks={"stable_prefix", "require_reasoning_content_for_thinking"},
+    )
+    messages = [
+        {"role": "system", "content": "You are helpful."},
+        {"role": "user", "content": "Think about this."},
+        {
+            "role": "assistant",
+            "content": "Let me think...",
+            "reasoning_content": "Already injected",
+        },
+        {"role": "user", "content": "Continue."},
+    ]
+    result = adapter._prepare_messages(messages)
+    # The assistant message already has reasoning_content — must not change
+    assert result[2]["reasoning_content"] == "Already injected"

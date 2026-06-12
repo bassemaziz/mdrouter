@@ -67,17 +67,63 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
     router = ModelRouter(config, runtime=runtime)
     request_logger = RequestLogger(runtime)
 
-    def cached_tokens_from_usage(usage: dict[str, Any] | None) -> int:
+    def _upstream_cache_metrics(
+        usage: dict[str, Any] | None,
+    ) -> dict[str, int]:
+        """Return unified upstream cache hit/miss token counts from any provider."""
         if not usage:
-            return 0
+            return {
+                "upstream_cache_hit_tokens": 0,
+                "upstream_cache_miss_tokens": 0,
+                "cached_tokens": 0,
+            }
+        # DeepSeek: top-level prompt_cache_hit_tokens / prompt_cache_miss_tokens
+        hit = usage.get("prompt_cache_hit_tokens")
+        miss = usage.get("prompt_cache_miss_tokens")
+        if hit is not None or miss is not None:
+            try:
+                return {
+                    "upstream_cache_hit_tokens": int(hit or 0),
+                    "upstream_cache_miss_tokens": int(miss or 0),
+                    "cached_tokens": int(hit or 0),
+                }
+            except (TypeError, ValueError):
+                pass
+        # Anthropic: top-level cache_read_input_tokens / cache_creation_input_tokens
+        read = usage.get("cache_read_input_tokens")
+        create = usage.get("cache_creation_input_tokens")
+        if read is not None or create is not None:
+            try:
+                return {
+                    "upstream_cache_hit_tokens": int(read or 0),
+                    "upstream_cache_miss_tokens": int(create or 0),
+                    "cached_tokens": int(read or 0),
+                }
+            except (TypeError, ValueError):
+                pass
+        # OpenAI-compat: nested usage.prompt_tokens_details.cached_tokens
         details = usage.get("prompt_tokens_details")
-        if not isinstance(details, dict):
-            return 0
-        value = details.get("cached_tokens", 0)
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return 0
+        if isinstance(details, dict):
+            cached = details.get("cached_tokens", 0)
+            try:
+                hit_val = int(cached)
+                prompt = usage.get("prompt_tokens", 0)
+                try:
+                    miss_val = max(0, int(prompt) - hit_val)
+                except (TypeError, ValueError):
+                    miss_val = 0
+                return {
+                    "upstream_cache_hit_tokens": hit_val,
+                    "upstream_cache_miss_tokens": miss_val,
+                    "cached_tokens": hit_val,
+                }
+            except (TypeError, ValueError):
+                pass
+        return {
+            "upstream_cache_hit_tokens": 0,
+            "upstream_cache_miss_tokens": 0,
+            "cached_tokens": 0,
+        }
 
     def visible_model_name(requested_model: str, meta: dict[str, Any] | None) -> str:
         if requested_model != "mdrouter/auto":
@@ -418,7 +464,7 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                 "client": req.client.host if req.client else None,
                 "prompt_tokens": (usage or {}).get("prompt_tokens"),
                 "completion_tokens": (usage or {}).get("completion_tokens"),
-                "cached_tokens": cached_tokens_from_usage(usage),
+                **_upstream_cache_metrics(usage),
                 "status": 200,
                 "response_body": response_payload
                 if runtime.log_response_body
@@ -621,7 +667,7 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                 "client": req.client.host if req.client else None,
                 "prompt_tokens": (usage or {}).get("prompt_tokens"),
                 "completion_tokens": (usage or {}).get("completion_tokens"),
-                "cached_tokens": cached_tokens_from_usage(usage),
+                **_upstream_cache_metrics(usage),
                 "status": 200,
                 "response_body": response_payload
                 if runtime.log_response_body
@@ -841,7 +887,7 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                         "event": "stream_done",
                         "prompt_tokens": (stream_usage or {}).get("prompt_tokens"),
                         "completion_tokens": (stream_usage or {}).get("completion_tokens"),
-                        "cached_tokens": cached_tokens_from_usage(stream_usage),
+                        **_upstream_cache_metrics(stream_usage),
                         "response_body": {"content": "".join(stream_collected)}
                         if runtime.log_response_body
                         else None,
@@ -914,7 +960,7 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                 "completion_tokens": (response.get("usage") or {}).get(
                     "completion_tokens"
                 ),
-                "cached_tokens": cached_tokens_from_usage(response.get("usage")),
+                **_upstream_cache_metrics(response.get("usage")),
                 "status": 200,
                 "response_body": response if runtime.log_response_body else None,
                 "request_body": payload.model_dump()
@@ -1335,7 +1381,7 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                         "event": "stream_done",
                         "prompt_tokens": (stream_usage or {}).get("prompt_tokens"),
                         "completion_tokens": (stream_usage or {}).get("completion_tokens"),
-                        "cached_tokens": cached_tokens_from_usage(stream_usage),
+                        **_upstream_cache_metrics(stream_usage),
                         "response_body": {"content": "".join(stream_collected)}
                         if runtime.log_response_body
                         else None,
@@ -1391,7 +1437,7 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                 "client": req.client.host if req.client else None,
                 "prompt_tokens": usage.get("prompt_tokens"),
                 "completion_tokens": usage.get("completion_tokens"),
-                "cached_tokens": cached_tokens_from_usage(usage),
+                **_upstream_cache_metrics(usage),
                 "status": 200,
                 "response_body": anthropic_resp
                 if runtime.log_response_body
