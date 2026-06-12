@@ -651,20 +651,32 @@ class ModelRouter:
         mutable_options = dict(options or {})
 
         provider_quirks = self.provider_quirks.get(provider_name, frozenset())
+        provider_cfg = self.config.providers.get(provider_name)
         if (
             self.runtime.prompt_cache_key_enabled
             and "prompt_cache_key" not in mutable_options
             and QUIRK_NO_PROMPT_CACHE not in provider_quirks
         ):
-            mutable_options["prompt_cache_key"] = f"router:{effective_alias}"
+            key_template = (
+                provider_cfg.prompt_cache_key_template
+                if provider_cfg is not None
+                else None
+            ) or f"router:{effective_alias}"
+            mutable_options["prompt_cache_key"] = key_template
         if (
-            self.runtime.prompt_cache_retention
+            (self.runtime.prompt_cache_retention or (
+                provider_cfg is not None
+                and provider_cfg.prompt_cache_retention
+            ))
             and "prompt_cache_retention" not in mutable_options
             and QUIRK_NO_PROMPT_CACHE not in provider_quirks
         ):
-            mutable_options["prompt_cache_retention"] = (
-                self.runtime.prompt_cache_retention
+            retention = (
+                provider_cfg.prompt_cache_retention
+                if provider_cfg is not None and provider_cfg.prompt_cache_retention
+                else self.runtime.prompt_cache_retention
             )
+            mutable_options["prompt_cache_retention"] = retention
         if QUIRK_REQUIRE_REASONING_CONTENT_FOR_TOOL_CALLS in provider_quirks:
             mutable_messages = _inject_reasoning_content_for_tool_calls(
                 mutable_messages

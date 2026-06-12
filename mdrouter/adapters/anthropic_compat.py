@@ -11,6 +11,7 @@ from mdrouter.models import UpstreamProviderRequest
 
 ANTHROPIC_VERSION = "2023-06-01"
 DEFAULT_MAX_TOKENS = 4096
+QUIRK_ANTHROPIC_EXPLICIT_CACHE = "anthropic_explicit_cache"
 
 # ---------- OpenAI-shaped messages → Anthropic request body ----------
 
@@ -505,6 +506,10 @@ class AnthropicCompatibleAdapter(ProviderAdapter):
             "max_tokens": max_tokens,
             "stream": stream,
         }
+
+        # Enable Anthropic's automatic prompt caching when the quirk is set.
+        if QUIRK_ANTHROPIC_EXPLICIT_CACHE in self.quirks:
+            payload["cache_control"] = {"type": "ephemeral"}
 
         if system:
             payload["system"] = system

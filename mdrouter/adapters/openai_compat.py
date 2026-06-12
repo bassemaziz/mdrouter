@@ -17,6 +17,7 @@ QUIRK_REQUIRE_REASONING_CONTENT_FOR_THINKING = (
 )
 QUIRK_NORMALIZE_MULTIMODAL_CONTENT = "normalize_multimodal_content"
 QUIRK_NO_PROMPT_CACHE = "no_prompt_cache"
+QUIRK_STABLE_PREFIX = "stable_prefix"
 
 
 class OpenAICompatibleAdapter(ProviderAdapter):
@@ -77,7 +78,18 @@ class OpenAICompatibleAdapter(ProviderAdapter):
     def _prepare_messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         patched: list[dict[str, Any]] = []
         has_thinking = QUIRK_REQUIRE_REASONING_CONTENT_FOR_THINKING in self.quirks
-        for msg in messages:
+        has_stable_prefix = QUIRK_STABLE_PREFIX in self.quirks
+
+        # When stable_prefix is enabled, only normalize the new (last) message;
+        # all earlier messages pass through verbatim to preserve DeepSeek prefix cache.
+        normalize_from: int = 0
+        if has_stable_prefix and len(messages) > 1:
+            patched.extend(dict(m) for m in messages[:-1])
+            normalize_from = len(messages) - 1
+
+        for idx, msg in enumerate(messages):
+            if idx < normalize_from:
+                continue
             # Keep payload OpenAI-compatible for all providers:
             # content must be either a string or an array of typed parts.
             clone = self._normalize_message_content(msg)
