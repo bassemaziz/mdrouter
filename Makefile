@@ -9,13 +9,16 @@ CONFIG ?= config/providers.json
 
 help:
 	@echo "Available targets:"
-	@echo "  make setup   - Create virtual env and install dev dependencies"
-	@echo "  make run     - Start mdrouter with config/providers.json"
-	@echo "  make test    - Run test suite"
-	@echo "  make audit   - Run dependency vulnerability audit"
+	@echo "  make setup        - Create virtual env and install dev dependencies"
+	@echo "  make setup-mcp    - Create virtual env and install dev + mcp dependencies"
+	@echo "  make run          - Start mdrouter with config/providers.json"
+	@echo "  make run-mcp      - Start mdrouter MCP server on stdio (for AI coding tools)"
+	@echo "  make run-mcp-http - Start mdrouter MCP server on HTTP (for systemd or remote)"
+	@echo "  make test         - Run test suite"
+	@echo "  make audit        - Run dependency vulnerability audit"
 	@echo "  make precommit-install - Install local git pre-commit hook"
-	@echo "  make precommit - Run all pre-commit checks"
-	@echo "  make clean   - Remove virtual env and pytest cache"
+	@echo "  make precommit    - Run all pre-commit checks"
+	@echo "  make clean        - Remove virtual env and pytest cache"
 
 venv:
 	python3 -m venv $(VENV)
@@ -25,11 +28,20 @@ install: venv
 
 setup: install
 
+setup-mcp: venv
+	$(PIP) install -e ".[dev,mcp]"
+
 run:
 	$(PYTHON) -m mdrouter --config $(CONFIG)
 
 test:
 	$(PYTHON) -m pytest -q
+
+run-mcp:
+	$(PYTHON) -m mdrouter.mcp --transport stdio
+
+run-mcp-http:
+	$(PYTHON) -m mdrouter.mcp --transport streamable-http --host 127.0.0.1 --port 11436
 
 audit:
 	$(PYTHON) -m pip_audit

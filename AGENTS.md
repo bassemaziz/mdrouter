@@ -51,12 +51,12 @@ Key env vars: `ROUTER_ENABLED_PROVIDERS`, `ROUTER_HOST`, `ROUTER_PORT`, `ROUTER_
 - **Error handling**: FastAPI `HTTPException` for API errors. Provider errors handled in adapters. `raise NotImplementedError` in abstract base.
 - **Testing**: Functions (unit) and integration tests in `tests/`. Pytest with `-q`. Use test helper `_config()` to build minimal `AppConfig` fixtures.
 - **Style**: Ruff + ruff-format (pre-commit enforced). Spaces, not tabs (default Python).
-- **Streaming**: Server-Sent Events (text/event-stream). Both OpenAI and Anthropic wire formats supported.
+- **Language**: All agent responses must be in English. Code identifiers, file paths, shell commands, and technical terms remain in their original language.
 
 ## Security
 
 - **`.env` contains live API keys** — `.gitignore`, `.claudeignore`, and `.cursorignore` all block it. Never read `.env` directly; use `.env.example` as the reference for available env vars.
-- API key env vars are named per provider: `NOVITA_API_KEY`, `OPENCODE_GO_API_KEY`, `ANTHROPIC_API_KEY`, etc.
+- **`data/mcp.db` is PROTECTED** — contains irreplaceable crawled documentation. Never delete, overwrite, or DROP TABLE on this file without explicit user approval, even in YOLO mode. Use temp paths for testing. The `data/` directory itself must not be `rm -rf`'d.
 
 ## Notes
 

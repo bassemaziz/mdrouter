@@ -1,0 +1,3 @@
+# This directory contains the MCP crawled documentation database.
+# The database files are gitignored but the directory and this file are tracked.
+# DO NOT delete data/mcp.db — it contains irreplaceable crawled content.
