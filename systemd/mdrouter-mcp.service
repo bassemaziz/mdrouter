@@ -7,22 +7,22 @@ Wants=network-online.target
 Type=simple
 User=%i
 WorkingDirectory=/opt/mdrouter
-EnvironmentFile=/opt/mdrouter/.env
-Environment=ROUTER_MCP_CONFIG=/opt/mdrouter/config/mcp.json
-Environment=ROUTER_CONFIG=/opt/mdrouter/config/providers.json
-Environment=ROUTER_MCP_TRANSPORT=streamable-http
 ExecStart=/opt/mdrouter/.venv/bin/python -m mdrouter.mcp --transport streamable-http --host 127.0.0.1 --port 11436
 Restart=always
 RestartSec=3
 KillSignal=SIGINT
 TimeoutStopSec=20
 
-# Tighten defaults while allowing outbound HTTP for crawling and LLM calls
+# Security
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
 ProtectHome=true
-ReadWritePaths=/opt/mdrouter/data /opt/mdrouter/logs
+ReadWritePaths=%h/.local/share/mdrouter /opt/mdrouter/logs
+
+# Performance
+LimitNOFILE=8192
+MemoryMax=512M
 
 [Install]
 WantedBy=multi-user.target

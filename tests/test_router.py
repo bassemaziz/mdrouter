@@ -180,7 +180,10 @@ def test_non_vision_model_rejects_image_content():
             "role": "user",
             "content": [
                 {"type": "text", "text": "describe this"},
-                {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "data:image/png;base64,AAAA"},
+                },
             ],
         }
     ]
@@ -219,7 +222,9 @@ def test_router_normalizes_dict_image_content_before_provider_request():
 
 
 def test_auto_model_uses_configured_default_candidates(monkeypatch):
-    monkeypatch.setenv("ROUTER_AUTO_DEFAULT_CANDIDATES", "novita/demo-model,go/kimi-k2.6")
+    monkeypatch.setenv(
+        "ROUTER_AUTO_DEFAULT_CANDIDATES", "novita/demo-model,go/kimi-k2.6"
+    )
     router = ModelRouter(_config())
 
     resolved_alias, request_class = router._resolve_runtime_alias(
@@ -269,7 +274,10 @@ def test_auto_model_selects_vision_capable_model_for_image_input():
                 "role": "user",
                 "content": [
                     {"type": "text", "text": "describe"},
-                    {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": "data:image/png;base64,AAAA"},
+                    },
                 ],
             }
         ],
@@ -324,7 +332,10 @@ def test_auto_vision_request_skips_non_vision_free_pool(monkeypatch):
                 "role": "user",
                 "content": [
                     {"type": "text", "text": "describe"},
-                    {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": "data:image/png;base64,AAAA"},
+                    },
                 ],
             }
         ],

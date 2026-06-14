@@ -69,10 +69,12 @@ async def test_namespace_isolation(tmp_path):
 
 async def test_migrations_tracking(store):
     """Migrations should be tracked and idempotent."""
-    await store.run_migrations([
-        "CREATE TABLE test_v0 (id INTEGER PRIMARY KEY)",
-        "CREATE TABLE test_v1 (id INTEGER PRIMARY KEY, extra TEXT)",
-    ])
+    await store.run_migrations(
+        [
+            "CREATE TABLE test_v0 (id INTEGER PRIMARY KEY)",
+            "CREATE TABLE test_v1 (id INTEGER PRIMARY KEY, extra TEXT)",
+        ]
+    )
 
     # Check migration records
     rows = await store.fetch_all(
@@ -83,10 +85,12 @@ async def test_migrations_tracking(store):
     assert rows[1]["version"] == 1
 
     # Running again should be a no-op
-    await store.run_migrations([
-        "CREATE TABLE test_v0 (id INTEGER PRIMARY KEY)",
-        "CREATE TABLE test_v1 (id INTEGER PRIMARY KEY, extra TEXT)",
-    ])
+    await store.run_migrations(
+        [
+            "CREATE TABLE test_v0 (id INTEGER PRIMARY KEY)",
+            "CREATE TABLE test_v1 (id INTEGER PRIMARY KEY, extra TEXT)",
+        ]
+    )
     rows = await store.fetch_all(
         "SELECT * FROM _migrations WHERE namespace=? ORDER BY version", ("test",)
     )
@@ -108,10 +112,21 @@ async def test_content_hash_dedup(store):
 
 async def test_fts_create_and_search(store):
     """FTS5 should support creation and search."""
-    await store.execute("CREATE TABLE test_pages (id INTEGER PRIMARY KEY, title TEXT, content TEXT)")
-    await store.execute("INSERT INTO test_pages (title, content) VALUES (?, ?)", ("Page 1", "Python async programming guide"))
-    await store.execute("INSERT INTO test_pages (title, content) VALUES (?, ?)", ("Page 2", "Rust ownership and borrowing"))
-    await store.execute("INSERT INTO test_pages (title, content) VALUES (?, ?)", ("Page 3", "Python decorators explained"))
+    await store.execute(
+        "CREATE TABLE test_pages (id INTEGER PRIMARY KEY, title TEXT, content TEXT)"
+    )
+    await store.execute(
+        "INSERT INTO test_pages (title, content) VALUES (?, ?)",
+        ("Page 1", "Python async programming guide"),
+    )
+    await store.execute(
+        "INSERT INTO test_pages (title, content) VALUES (?, ?)",
+        ("Page 2", "Rust ownership and borrowing"),
+    )
+    await store.execute(
+        "INSERT INTO test_pages (title, content) VALUES (?, ?)",
+        ("Page 3", "Python decorators explained"),
+    )
 
     await store.create_fts("test_fts", ["title", "content"], content_table="test_pages")
 

@@ -16,7 +16,6 @@ Usage:
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -104,7 +103,9 @@ class SQLiteStore:
         await self._conn.executemany(sql, params_list)
         await self._conn.commit()
 
-    async def fetch_all(self, sql: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
+    async def fetch_all(
+        self, sql: str, params: tuple[Any, ...] = ()
+    ) -> list[dict[str, Any]]:
         cursor = await self._conn.execute(sql, params)
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
@@ -137,10 +138,7 @@ class SQLiteStore:
                 f"content_rowid='id')"
             )
         else:
-            sql = (
-                f"CREATE VIRTUAL TABLE IF NOT EXISTS {table} "
-                f"USING fts5({col_defs})"
-            )
+            sql = f"CREATE VIRTUAL TABLE IF NOT EXISTS {table} USING fts5({col_defs})"
         await self.execute(sql)
 
     async def search_fts(
@@ -166,20 +164,24 @@ class SQLiteStore:
             where += f" AND {extra_where}"
         params: tuple[Any, ...] = (fts_query,) + extra_params
 
-        sql = (
-            f"SELECT *, rank AS _fts_rank "
-            f"FROM {table} {where} "
-            f"ORDER BY rank LIMIT ?"
-        )
+        sql = f"SELECT *, rank AS _fts_rank FROM {table} {where} ORDER BY rank LIMIT ?"
         return await self.fetch_all(sql, params + (limit,))
 
     @staticmethod
     def _escape_fts_query(query: str) -> str:
-        """Escape FTS5 special characters."""
+        """Escape FTS5 special characters.
+
+        FTS5 has its own query syntax. Operator characters are stripped
+        for safety — they're rare in doc search queries and stripping
+        prevents syntax errors from malformed user input.
+        """
         import re
 
-        # Characters that need escaping in FTS5 queries
-        return re.sub(r'([\[\]\{\}\(\)\*\+\-\^\"\~\:\!\&\|])', r'\\\1', query)
+        # Characters that are FTS5 operators — strip them
+        stripped = re.sub(r'[\x00-\x1f\[\]{}\(\)\*\+\-\^"~:!&|\\]', " ", query)
+        # Collapse multiple spaces
+        stripped = re.sub(r"\s+", " ", stripped).strip()
+        return stripped
 
     # ── content hash helpers (cost-saving dedup) ───────────────
 

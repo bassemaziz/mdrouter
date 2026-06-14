@@ -159,9 +159,13 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                         chunks.append(part["text"])
         return "\n".join(chunks)
 
-    def _request_class_tag(messages: list[dict[str, Any]], options: dict[str, Any] | None) -> str:
+    def _request_class_tag(
+        messages: list[dict[str, Any]], options: dict[str, Any] | None
+    ) -> str:
         message_count = len(messages)
-        input_chars = sum(_content_input_chars(msg.get("content", "")) for msg in messages)
+        input_chars = sum(
+            _content_input_chars(msg.get("content", "")) for msg in messages
+        )
 
         tool_def_count = 0
         if isinstance(options, dict):
@@ -179,13 +183,19 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
             return "long_context"
 
         user_text = _iter_user_text(messages).lower()
-        if re.search(r"\b(refactor|rewrite|migrate|re-architect|rearchitect)\b", user_text):
+        if re.search(
+            r"\b(refactor|rewrite|migrate|re-architect|rearchitect)\b", user_text
+        ):
             return "heavy_refactor"
         return "default_coding"
 
-    def _request_telemetry(messages: list[dict[str, Any]], options: dict[str, Any] | None) -> dict[str, Any]:
+    def _request_telemetry(
+        messages: list[dict[str, Any]], options: dict[str, Any] | None
+    ) -> dict[str, Any]:
         message_count = len(messages)
-        input_chars = sum(_content_input_chars(msg.get("content", "")) for msg in messages)
+        input_chars = sum(
+            _content_input_chars(msg.get("content", "")) for msg in messages
+        )
         tool_def_count = 0
         if isinstance(options, dict):
             tools = options.get("tools")
@@ -886,7 +896,9 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                         "status": 200,
                         "event": "stream_done",
                         "prompt_tokens": (stream_usage or {}).get("prompt_tokens"),
-                        "completion_tokens": (stream_usage or {}).get("completion_tokens"),
+                        "completion_tokens": (stream_usage or {}).get(
+                            "completion_tokens"
+                        ),
                         **_upstream_cache_metrics(stream_usage),
                         "response_body": {"content": "".join(stream_collected)}
                         if runtime.log_response_body
@@ -1001,21 +1013,39 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                     text_parts: list[str] = []
                     tool_calls: list[dict[str, Any]] = []
                     for block in content:
-                        bt = block.type if isinstance(block, AnthropicContentBlock) else (block.get("type") if isinstance(block, dict) else "")
+                        bt = (
+                            block.type
+                            if isinstance(block, AnthropicContentBlock)
+                            else (block.get("type") if isinstance(block, dict) else "")
+                        )
                         if bt == "text":
-                            t = block.text if isinstance(block, AnthropicContentBlock) else (block.get("text") if isinstance(block, dict) else "")
+                            t = (
+                                block.text
+                                if isinstance(block, AnthropicContentBlock)
+                                else (
+                                    block.get("text") if isinstance(block, dict) else ""
+                                )
+                            )
                             if t:
                                 text_parts.append(t)
                         elif bt == "tool_use":
-                            blk_dict = block.model_dump() if isinstance(block, AnthropicContentBlock) else (block if isinstance(block, dict) else {})
-                            tool_calls.append({
-                                "id": blk_dict.get("id", ""),
-                                "type": "function",
-                                "function": {
-                                    "name": blk_dict.get("name", ""),
-                                    "arguments": json.dumps(blk_dict.get("input", {}), ensure_ascii=True),
-                                },
-                            })
+                            blk_dict = (
+                                block.model_dump()
+                                if isinstance(block, AnthropicContentBlock)
+                                else (block if isinstance(block, dict) else {})
+                            )
+                            tool_calls.append(
+                                {
+                                    "id": blk_dict.get("id", ""),
+                                    "type": "function",
+                                    "function": {
+                                        "name": blk_dict.get("name", ""),
+                                        "arguments": json.dumps(
+                                            blk_dict.get("input", {}), ensure_ascii=True
+                                        ),
+                                    },
+                                }
+                            )
                     openai_msg["content"] = "\n".join(text_parts) if text_parts else ""
                     if tool_calls:
                         openai_msg["tool_calls"] = tool_calls
@@ -1030,13 +1060,25 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                     # OpenAI providers see assistant(tool_calls) → tool → tool → ...
                     text_parts: list[dict[str, Any]] = []
                     for block in content:
-                        bt = block.type if isinstance(block, AnthropicContentBlock) else (block.get("type") if isinstance(block, dict) else "")
+                        bt = (
+                            block.type
+                            if isinstance(block, AnthropicContentBlock)
+                            else (block.get("type") if isinstance(block, dict) else "")
+                        )
                         if bt == "tool_result":
-                            blk_dict = block.model_dump() if isinstance(block, AnthropicContentBlock) else (block if isinstance(block, dict) else {})
+                            blk_dict = (
+                                block.model_dump()
+                                if isinstance(block, AnthropicContentBlock)
+                                else (block if isinstance(block, dict) else {})
+                            )
                             tc = blk_dict.get("content", "")
                             if isinstance(tc, list):
                                 tc_text = "\n".join(
-                                    (c.get("text", "") if isinstance(c, dict) else str(c))
+                                    (
+                                        c.get("text", "")
+                                        if isinstance(c, dict)
+                                        else str(c)
+                                    )
                                     for c in tc
                                 )
                             else:
@@ -1045,22 +1087,40 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                             if text_parts:
                                 result.append({"role": "user", "content": text_parts})
                                 text_parts = []
-                            result.append({
-                                "role": "tool",
-                                "content": tc_text,
-                                "tool_call_id": blk_dict.get("tool_use_id", ""),
-                            })
+                            result.append(
+                                {
+                                    "role": "tool",
+                                    "content": tc_text,
+                                    "tool_call_id": blk_dict.get("tool_use_id", ""),
+                                }
+                            )
                         elif bt == "image":
-                            src = block.source if isinstance(block, AnthropicContentBlock) else (block.get("source") if isinstance(block, dict) else {})
+                            src = (
+                                block.source
+                                if isinstance(block, AnthropicContentBlock)
+                                else (
+                                    block.get("source")
+                                    if isinstance(block, dict)
+                                    else {}
+                                )
+                            )
                             if isinstance(src, dict):
                                 media_type = src.get("media_type", "image/jpeg")
                                 data = src.get("data", "")
                                 url = f"data:{media_type};base64,{data}"
                             else:
                                 url = str(src) if src else ""
-                            text_parts.append({"type": "image_url", "image_url": {"url": url}})
+                            text_parts.append(
+                                {"type": "image_url", "image_url": {"url": url}}
+                            )
                         elif bt == "text":
-                            t = block.text if isinstance(block, AnthropicContentBlock) else (block.get("text") if isinstance(block, dict) else "")
+                            t = (
+                                block.text
+                                if isinstance(block, AnthropicContentBlock)
+                                else (
+                                    block.get("text") if isinstance(block, dict) else ""
+                                )
+                            )
                             text_parts.append({"type": "text", "text": t})
                         else:
                             text_parts.append({"type": "text", "text": str(block)})
@@ -1069,7 +1129,9 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                 elif isinstance(content, str):
                     result.append({"role": "user", "content": content})
                 else:
-                    result.append({"role": "user", "content": str(content) if content else ""})
+                    result.append(
+                        {"role": "user", "content": str(content) if content else ""}
+                    )
 
         return result
 
@@ -1081,14 +1143,18 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
             return None
         result: list[dict[str, Any]] = []
         for tool in tools:
-            result.append({
-                "type": "function",
-                "function": {
-                    "name": tool.get("name", ""),
-                    "description": tool.get("description", ""),
-                    "parameters": tool.get("input_schema", {"type": "object", "properties": {}}),
-                },
-            })
+            result.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": tool.get("name", ""),
+                        "description": tool.get("description", ""),
+                        "parameters": tool.get(
+                            "input_schema", {"type": "object", "properties": {}}
+                        ),
+                    },
+                }
+            )
         return result
 
     def _normalized_to_anthropic_response(
@@ -1112,12 +1178,14 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                 tool_input = json.loads(func.get("arguments", "{}"))
             except (json.JSONDecodeError, TypeError):
                 tool_input = {}
-            content_blocks.append({
-                "type": "tool_use",
-                "id": tc.get("id", f"toolu_{uuid.uuid4().hex[:24]}"),
-                "name": func.get("name", ""),
-                "input": tool_input,
-            })
+            content_blocks.append(
+                {
+                    "type": "tool_use",
+                    "id": tc.get("id", f"toolu_{uuid.uuid4().hex[:24]}"),
+                    "name": func.get("name", ""),
+                    "input": tool_input,
+                }
+            )
 
         if not content_blocks:
             content_blocks = [{"type": "text", "text": ""}]
@@ -1164,7 +1232,10 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
 
         if payload.tools:
             openai_tools = _anthropic_tools_to_openai(
-                [t.model_dump() if hasattr(t, "model_dump") else t for t in payload.tools]
+                [
+                    t.model_dump() if hasattr(t, "model_dump") else t
+                    for t in payload.tools
+                ]
             )
             if openai_tools:
                 options["tools"] = openai_tools
@@ -1312,7 +1383,6 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                                     tool_use_blocks[tc_idx]["name"] = tc_name
                                 tool_use_blocks[tc_idx]["arguments"] += tc_args
 
-
                         # Done
                         if chunk.get("done"):
                             if text_block_open:
@@ -1337,10 +1407,12 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                                     yield f"event: content_block_start\ndata: {json.dumps({'type': 'content_block_start', 'index': tc_index, 'content_block': {'type': 'tool_use', 'id': tb['id'], 'name': tb['name'], 'input': {}}})}\n\n"
                                     # Send accumulated args as partial JSON
                                     try:
-                                        parsed = json.loads(tb['arguments'])
-                                        args_json = json.dumps(parsed, ensure_ascii=True)
+                                        parsed = json.loads(tb["arguments"])
+                                        args_json = json.dumps(
+                                            parsed, ensure_ascii=True
+                                        )
                                     except (json.JSONDecodeError, TypeError):
-                                        args_json = tb['arguments']
+                                        args_json = tb["arguments"]
                                     yield f"event: content_block_delta\ndata: {json.dumps({'type': 'content_block_delta', 'index': tc_index, 'delta': {'type': 'input_json_delta', 'partial_json': args_json}})}\n\n"
                                     yield f"event: content_block_stop\ndata: {json.dumps({'type': 'content_block_stop', 'index': tc_index})}\n\n"
 
@@ -1356,7 +1428,10 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                     yield f"event: content_block_stop\ndata: {json.dumps({'type': 'content_block_stop', 'index': text_block_index})}\n\n"
                     stop_reason = "end_turn"
 
-                anthropic_usage: dict[str, Any] = {"input_tokens": 0, "output_tokens": 0}
+                anthropic_usage: dict[str, Any] = {
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                }
                 if isinstance(stream_usage, dict):
                     anthropic_usage = {
                         "input_tokens": stream_usage.get("prompt_tokens", 0),
@@ -1380,7 +1455,9 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                         "status": 200,
                         "event": "stream_done",
                         "prompt_tokens": (stream_usage or {}).get("prompt_tokens"),
-                        "completion_tokens": (stream_usage or {}).get("completion_tokens"),
+                        "completion_tokens": (stream_usage or {}).get(
+                            "completion_tokens"
+                        ),
                         **_upstream_cache_metrics(stream_usage),
                         "response_body": {"content": "".join(stream_collected)}
                         if runtime.log_response_body
@@ -1439,9 +1516,7 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
                 "completion_tokens": usage.get("completion_tokens"),
                 **_upstream_cache_metrics(usage),
                 "status": 200,
-                "response_body": anthropic_resp
-                if runtime.log_response_body
-                else None,
+                "response_body": anthropic_resp if runtime.log_response_body else None,
                 "request_body": payload.model_dump()
                 if runtime.log_request_body
                 else None,
@@ -1455,13 +1530,20 @@ def create_app(config_path: str | Path = DEFAULT_CONFIG_PATH) -> FastAPI:
         """Anthropic-compatible list models endpoint for Claude Code validation."""
         model_list: list[dict[str, Any]] = []
         for alias, model_cfg in router.config.models.items():
-            model_list.append({
-                "id": model_cfg.upstream_model,
-                "display_name": alias,
-                "type": "model",
-                "created_at": "2025-01-01T00:00:00Z",
-            })
-        return {"data": model_list, "has_more": False, "first_id": model_list[0]["id"] if model_list else None, "last_id": model_list[-1]["id"] if model_list else None}
+            model_list.append(
+                {
+                    "id": model_cfg.upstream_model,
+                    "display_name": alias,
+                    "type": "model",
+                    "created_at": "2025-01-01T00:00:00Z",
+                }
+            )
+        return {
+            "data": model_list,
+            "has_more": False,
+            "first_id": model_list[0]["id"] if model_list else None,
+            "last_id": model_list[-1]["id"] if model_list else None,
+        }
 
     return app
 

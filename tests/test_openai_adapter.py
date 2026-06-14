@@ -349,9 +349,9 @@ def test_prepare_messages_multi_turn_prefix_stable():
     t1_result = adapter._prepare_messages(turn1)
     t2_result = adapter._prepare_messages(turn2)
     # The prefix of turn2's result must equal turn1's full result
-    assert t2_result[: len(t1_result)] == t1_result, (
-        f"Prefix mismatch: turn2 prefix != turn1 result"
-    )
+    assert (
+        t2_result[: len(t1_result)] == t1_result
+    ), "Prefix mismatch: turn2 prefix != turn1 result"
 
 
 def test_stable_prefix_quirk_skips_prefix_normalization():

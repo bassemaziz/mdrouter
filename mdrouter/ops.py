@@ -198,7 +198,9 @@ def _status(args: argparse.Namespace) -> int:
     miss = totals["upstream_cache_miss_tokens"]
     total_upstream = hit + miss
     ratio_str = f"{hit / total_upstream * 100:.1f}%" if total_upstream else "n/a"
-    print(f"  Upstream cache:     hit={_fmt_num(hit)} miss={_fmt_num(miss)} ratio={ratio_str}")
+    print(
+        f"  Upstream cache:     hit={_fmt_num(hit)} miss={_fmt_num(miss)} ratio={ratio_str}"
+    )
     print(f"  Cache exact hits:   {_fmt_num(totals['cache_exact'])}")
     print(f"  Cache semantic:     {_fmt_num(totals['cache_semantic'])}")
     print(f"  Cache misses:       {_fmt_num(totals['cache_miss'])}")
@@ -222,7 +224,9 @@ def _status(args: argparse.Namespace) -> int:
         up_miss = stat["upstream_cache_miss_tokens"]
         up_total = up_hit + up_miss
         up_ratio = f"{up_hit / up_total * 100:.1f}%" if up_total else "n/a"
-        print(f"    upstream_cache:   hit={_fmt_num(up_hit)} miss={_fmt_num(up_miss)} ratio={up_ratio}")
+        print(
+            f"    upstream_cache:   hit={_fmt_num(up_hit)} miss={_fmt_num(up_miss)} ratio={up_ratio}"
+        )
         print(f"    cache_exact:      {_fmt_num(stat['cache_exact'])}")
         print(f"    cache_semantic:   {_fmt_num(stat['cache_semantic'])}")
         print(f"    cache_miss:       {_fmt_num(stat['cache_miss'])}")

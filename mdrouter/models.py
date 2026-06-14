@@ -64,6 +64,7 @@ class UpstreamProviderRequest(BaseModel):
 
 class AnthropicContentBlock(BaseModel):
     """A content block in an Anthropic Messages request/response."""
+
     model_config = ConfigDict(extra="allow")
 
     type: str  # text, image, tool_use, tool_result, thinking
@@ -73,23 +74,31 @@ class AnthropicContentBlock(BaseModel):
     name: str | None = None  # for tool_use
     input: dict[str, Any] | None = None  # for tool_use
     tool_use_id: str | None = None  # for tool_result
-    content: str | list[dict[str, Any]] | None = None  # for tool_result (can be string for errors)
+    content: str | list[dict[str, Any]] | None = (
+        None  # for tool_result (can be string for errors)
+    )
     thinking: str | None = None  # for thinking blocks
     signature: str | None = None  # for thinking signature
     is_error: bool | None = None  # for error blocks
-    cache_control: dict[str, Any] | None = None  # for cache control (object, e.g. {"type":"ephemeral"})
+    cache_control: dict[str, Any] | None = (
+        None  # for cache control (object, e.g. {"type":"ephemeral"})
+    )
 
 
 class AnthropicMessage(BaseModel):
     """A message in an Anthropic Messages request."""
+
     model_config = ConfigDict(extra="allow")
 
     role: str  # user, assistant
-    content: list[AnthropicContentBlock] | str  # list first to avoid union ordering issues
+    content: (
+        list[AnthropicContentBlock] | str
+    )  # list first to avoid union ordering issues
 
 
 class AnthropicToolSpec(BaseModel):
     """An Anthropic tool definition."""
+
     name: str
     description: str | None = None
     input_schema: dict[str, Any]
@@ -97,6 +106,7 @@ class AnthropicToolSpec(BaseModel):
 
 class AnthropicChatRequest(BaseModel):
     """Anthropic-compatible /v1/messages request body."""
+
     model_config = ConfigDict(extra="allow")
 
     model: str

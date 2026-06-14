@@ -62,11 +62,15 @@ async def test_discover_urls_from_sitemap():
 
     with respx.mock(assert_all_called=False) as mock:
         # robots.txt
-        mock.get("https://example.com/robots.txt").return_value = Response(200, text="User-agent: *\nAllow: /")
+        mock.get("https://example.com/robots.txt").return_value = Response(
+            200, text="User-agent: *\nAllow: /"
+        )
         # llms.txt — not found, fall back to sitemap
         mock.get("https://example.com/llms.txt").return_value = Response(404)
         # sitemap candidates
-        mock.get("https://example.com/sitemap.xml").return_value = Response(200, text=sitemap_xml)
+        mock.get("https://example.com/sitemap.xml").return_value = Response(
+            200, text=sitemap_xml
+        )
         mock.get("https://example.com/sitemap_index.xml").return_value = Response(404)
         mock.get("https://example.com/sitemap-index.xml").return_value = Response(404)
         mock.get("https://example.com/sitemap.php").return_value = Response(404)
@@ -93,14 +97,25 @@ async def test_crawl_single_page():
         class FakeDocStore:
             async def add_source(self, name, url):
                 return {"id": 1, "name": name, "base_url": url}
+
             async def upsert_page(self, source_id, url, title, content):
                 return (1, True)
-            async def get_page(self, page_id):
-                return {"id": 1, "title": "Async Guide", "url": "https://example.com/async", "content": "Python asyncio"}
 
-        page = await crawler.crawl_single_page("https://example.com/async", FakeDocStore(), source_id=1)
+            async def get_page(self, page_id):
+                return {
+                    "id": 1,
+                    "title": "Async Guide",
+                    "url": "https://example.com/async",
+                    "content": "Python asyncio",
+                }
+
+        page = await crawler.crawl_single_page(
+            "https://example.com/async", FakeDocStore(), source_id=1
+        )
         assert page is not None
-        assert "async" in page["content"].lower() or "asyncio" in page["content"].lower()
+        assert (
+            "async" in page["content"].lower() or "asyncio" in page["content"].lower()
+        )
 
 
 @pytest.mark.asyncio
@@ -110,15 +125,23 @@ async def test_fetch_single_404():
         mock.get("https://example.com/missing").return_value = Response(404)
 
         crawler = DocCrawler()
-        async with httpx.AsyncClient(timeout=10, headers={"User-Agent": "test"}) as client:
+        async with httpx.AsyncClient(
+            timeout=10, headers={"User-Agent": "test"}
+        ) as client:
             result = await crawler._fetch_single(client, "https://example.com/missing")
         assert result is None
 
 
 def test_is_same_domain():
-    assert DocCrawler._is_same_domain("https://example.com/page", "https://example.com/")
-    assert DocCrawler._is_same_domain("https://docs.example.com/page", "https://docs.example.com/")
-    assert not DocCrawler._is_same_domain("https://other.com/page", "https://example.com/")
+    assert DocCrawler._is_same_domain(
+        "https://example.com/page", "https://example.com/"
+    )
+    assert DocCrawler._is_same_domain(
+        "https://docs.example.com/page", "https://docs.example.com/"
+    )
+    assert not DocCrawler._is_same_domain(
+        "https://other.com/page", "https://example.com/"
+    )
 
 
 def test_parse_llms_txt():
@@ -138,7 +161,7 @@ def test_parse_llms_txt():
 
     entries = DocCrawler._parse_llms_txt(llms_txt, "https://nextjs.org/")
     assert len(entries) == 5  # 2 section headers + 3 page entries
-    
+
     # Check section headers
     assert entries[0]["title"] == "Getting Started"
     assert entries[0]["url"] == "https://nextjs.org/docs/app/getting-started"

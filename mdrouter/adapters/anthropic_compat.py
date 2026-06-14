@@ -41,7 +41,9 @@ def _openai_content_part_to_anthropic(part: dict[str, Any]) -> dict[str, Any]:
         return {"type": "text", "text": part.get("text", "")}
     # Unknown type — try to infer
     if "image_url" in part:
-        return _openai_content_part_to_anthropic({"type": "image_url", "image_url": part["image_url"]})
+        return _openai_content_part_to_anthropic(
+            {"type": "image_url", "image_url": part["image_url"]}
+        )
     if "text" in part:
         return {"type": "text", "text": str(part["text"])}
     # Fallback
@@ -87,7 +89,9 @@ def _openai_tool_result_to_anthropic(msg: dict[str, Any]) -> dict[str, Any]:
 
 def _openai_messages_to_anthropic(
     messages: list[dict[str, Any]], options: dict[str, Any] | None
-) -> tuple[list[dict[str, Any]], str | list[dict[str, Any]] | None, int, dict[str, Any]]:
+) -> tuple[
+    list[dict[str, Any]], str | list[dict[str, Any]] | None, int, dict[str, Any]
+]:
     """Convert OpenAI-shaped messages to Anthropic Messages API format.
 
     Returns (anthropic_messages, system, max_tokens, top_level_params).
@@ -112,10 +116,12 @@ def _openai_messages_to_anthropic(
             continue
 
         if role == "tool":
-            anthropic_messages.append({
-                "role": "user",
-                "content": [_openai_tool_result_to_anthropic(msg)],
-            })
+            anthropic_messages.append(
+                {
+                    "role": "user",
+                    "content": [_openai_tool_result_to_anthropic(msg)],
+                }
+            )
             continue
 
         if role == "assistant":
@@ -137,10 +143,12 @@ def _openai_messages_to_anthropic(
         # role == "user" (or anything else)
         content = msg.get("content", "")
         if isinstance(content, str):
-            anthropic_messages.append({
-                "role": "user",
-                "content": [{"type": "text", "text": content}],
-            })
+            anthropic_messages.append(
+                {
+                    "role": "user",
+                    "content": [{"type": "text", "text": content}],
+                }
+            )
         elif isinstance(content, list):
             blocks = [_openai_content_part_to_anthropic(p) for p in content]
             anthropic_messages.append({"role": "user", "content": blocks})
@@ -148,10 +156,12 @@ def _openai_messages_to_anthropic(
             blocks = [_openai_content_part_to_anthropic(content)]
             anthropic_messages.append({"role": "user", "content": blocks})
         else:
-            anthropic_messages.append({
-                "role": "user",
-                "content": [{"type": "text", "text": str(content)}],
-            })
+            anthropic_messages.append(
+                {
+                    "role": "user",
+                    "content": [{"type": "text", "text": str(content)}],
+                }
+            )
 
     if system_parts:
         system = "\n\n".join(system_parts)
@@ -166,7 +176,15 @@ def _openai_messages_to_anthropic(
             max_tokens = None
 
     top_level: dict[str, Any] = {}
-    for key in ("temperature", "top_p", "thinking", "reasoning_effort", "stop_sequences", "metadata", "stop"):
+    for key in (
+        "temperature",
+        "top_p",
+        "thinking",
+        "reasoning_effort",
+        "stop_sequences",
+        "metadata",
+        "stop",
+    ):
         if key in opts:
             top_level[key] = opts.pop(key)
 
@@ -208,14 +226,16 @@ def _normalize_anthropic_non_stream(
             text_parts.append(str(block.get("text", "")))
         elif block_type == "tool_use":
             tool_input = block.get("input") or {}
-            tool_calls.append({
-                "id": block.get("id", f"call_{uuid.uuid4().hex[:16]}"),
-                "type": "function",
-                "function": {
-                    "name": block.get("name", ""),
-                    "arguments": json.dumps(tool_input, ensure_ascii=True),
-                },
-            })
+            tool_calls.append(
+                {
+                    "id": block.get("id", f"call_{uuid.uuid4().hex[:16]}"),
+                    "type": "function",
+                    "function": {
+                        "name": block.get("name", ""),
+                        "arguments": json.dumps(tool_input, ensure_ascii=True),
+                    },
+                }
+            )
         # thinking blocks are skipped (not surfaced to OpenAI clients)
 
     message: dict[str, Any] = {
@@ -233,7 +253,8 @@ def _normalize_anthropic_non_stream(
         normalized_usage = {
             "prompt_tokens": usage.get("input_tokens", 0),
             "completion_tokens": usage.get("output_tokens", 0),
-            "total_tokens": usage.get("input_tokens", 0) + usage.get("output_tokens", 0),
+            "total_tokens": usage.get("input_tokens", 0)
+            + usage.get("output_tokens", 0),
         }
 
     payload: dict[str, Any] = {
@@ -314,13 +335,15 @@ def _normalize_anthropic_stream_event(
         if delta_type == "text_delta":
             text = delta.get("text", "")
             if text:
-                chunks.append({
-                    "model": model,
-                    "created_at": now,
-                    "message": {"role": "assistant", "content": text},
-                    "delta": {"content": text},
-                    "done": False,
-                })
+                chunks.append(
+                    {
+                        "model": model,
+                        "created_at": now,
+                        "message": {"role": "assistant", "content": text},
+                        "delta": {"content": text},
+                        "done": False,
+                    }
+                )
 
         elif delta_type == "input_json_delta":
             partial = delta.get("partial_json", "")
@@ -332,13 +355,15 @@ def _normalize_anthropic_stream_event(
             if idx in state["thinking_blocks"]:
                 state["thinking_blocks"][idx]["thinking"] += thinking_text
             if thinking_text:
-                chunks.append({
-                    "model": model,
-                    "created_at": now,
-                    "message": {"role": "assistant", "content": ""},
-                    "delta": {"reasoning_content": thinking_text},
-                    "done": False,
-                })
+                chunks.append(
+                    {
+                        "model": model,
+                        "created_at": now,
+                        "message": {"role": "assistant", "content": ""},
+                        "delta": {"reasoning_content": thinking_text},
+                        "done": False,
+                    }
+                )
 
         elif delta_type == "signature_delta":
             signature = delta.get("signature", "")
@@ -352,7 +377,11 @@ def _normalize_anthropic_stream_event(
         if idx in state["tool_use_blocks"]:
             block_info = state["tool_use_blocks"][idx]
             try:
-                tool_input = json.loads(block_info["input_json"]) if block_info["input_json"].strip() else {}
+                tool_input = (
+                    json.loads(block_info["input_json"])
+                    if block_info["input_json"].strip()
+                    else {}
+                )
             except json.JSONDecodeError:
                 tool_input = {}
             tool_call = {
@@ -364,13 +393,15 @@ def _normalize_anthropic_stream_event(
                 },
             }
             state.setdefault("pending_tool_calls", []).append(tool_call)
-            chunks.append({
-                "model": model,
-                "created_at": now,
-                "message": {"role": "assistant", "content": ""},
-                "delta": {"tool_calls": [tool_call]},
-                "done": False,
-            })
+            chunks.append(
+                {
+                    "model": model,
+                    "created_at": now,
+                    "message": {"role": "assistant", "content": ""},
+                    "delta": {"tool_calls": [tool_call]},
+                    "done": False,
+                }
+            )
         return chunks, state
 
     if event_type == "message_delta":
@@ -382,7 +413,8 @@ def _normalize_anthropic_stream_event(
             normalized_usage = {
                 "prompt_tokens": usage.get("input_tokens", 0),
                 "completion_tokens": usage.get("output_tokens", 0),
-                "total_tokens": usage.get("input_tokens", 0) + usage.get("output_tokens", 0),
+                "total_tokens": usage.get("input_tokens", 0)
+                + usage.get("output_tokens", 0),
             }
         done_chunk: dict[str, Any] = {
             "model": model,
@@ -401,14 +433,16 @@ def _normalize_anthropic_stream_event(
     if event_type == "message_stop":
         if not state.get("done"):
             state["done"] = True
-            chunks.append({
-                "model": model,
-                "created_at": now,
-                "message": {"role": "assistant", "content": ""},
-                "delta": {},
-                "done": True,
-                "done_reason": "stop",
-            })
+            chunks.append(
+                {
+                    "model": model,
+                    "created_at": now,
+                    "message": {"role": "assistant", "content": ""},
+                    "delta": {},
+                    "done": True,
+                    "done_reason": "stop",
+                }
+            )
         return chunks, state
 
     return chunks, state
@@ -417,7 +451,9 @@ def _normalize_anthropic_stream_event(
 # ---------- OpenAI tools → Anthropic tools ----------
 
 
-def _openai_tools_to_anthropic(tools: list[dict[str, Any]] | None) -> list[dict[str, Any]] | None:
+def _openai_tools_to_anthropic(
+    tools: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]] | None:
     """Convert OpenAI-format tools to Anthropic-format tools."""
     if not tools:
         return None
@@ -425,11 +461,15 @@ def _openai_tools_to_anthropic(tools: list[dict[str, Any]] | None) -> list[dict[
     for tool in tools:
         if tool.get("type") == "function":
             func = tool.get("function") or {}
-            result.append({
-                "name": func.get("name", ""),
-                "description": func.get("description", ""),
-                "input_schema": func.get("parameters", {"type": "object", "properties": {}}),
-            })
+            result.append(
+                {
+                    "name": func.get("name", ""),
+                    "description": func.get("description", ""),
+                    "input_schema": func.get(
+                        "parameters", {"type": "object", "properties": {}}
+                    ),
+                }
+            )
         else:
             # Pass through unknown tool types
             result.append(tool)
@@ -485,7 +525,9 @@ class AnthropicCompatibleAdapter(ProviderAdapter):
         self.model_extra = model_extra or {}
         self._client = client
 
-    def _build_payload(self, request: UpstreamProviderRequest, *, stream: bool) -> dict[str, Any]:
+    def _build_payload(
+        self, request: UpstreamProviderRequest, *, stream: bool
+    ) -> dict[str, Any]:
         options = dict(request.options or {})
 
         # Extract OpenAI-format tools and convert to Anthropic format
@@ -652,11 +694,13 @@ def _anthropic_normalized_to_openai_wire(normalized: dict[str, Any]) -> dict[str
     """Convert the internal normalized shape back to an OpenAI-like wire response
     so the router's normalize_chat_non_stream() can process it correctly."""
     msg = normalized.get("message") or {}
-    choices = [{
-        "index": 0,
-        "message": dict(msg),
-        "finish_reason": normalized.get("done_reason", "stop"),
-    }]
+    choices = [
+        {
+            "index": 0,
+            "message": dict(msg),
+            "finish_reason": normalized.get("done_reason", "stop"),
+        }
+    ]
     wire: dict[str, Any] = {
         "id": "chatcmpl-anthropic",
         "object": "chat.completion",

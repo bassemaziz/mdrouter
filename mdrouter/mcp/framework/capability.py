@@ -93,5 +93,13 @@ class Capability(ABC):
         """Return recurring tasks the scheduler should run."""
         return []
 
+    def register_prompts(self, mcp: "FastMCP") -> None:
+        """Register this capability's prompts on the FastMCP instance.
+
+        Prompts are templates that guide AI agents through multi-step
+        workflows. Unlike tools, they are not called directly — they
+        provide instructions the agent should follow.
+        """
+
     async def shutdown(self) -> None:
         """Called at server shutdown. Clean up connections."""

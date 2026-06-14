@@ -17,7 +17,9 @@ from mdrouter.adapters.openai_compat import OpenAICompatibleAdapter
 from mdrouter.adapters.openai_compat import QUIRK_NORMALIZE_MULTIMODAL_CONTENT
 from mdrouter.adapters.openai_compat import QUIRK_NO_PROMPT_CACHE
 from mdrouter.adapters.openai_compat import QUIRK_REQUIRE_REASONING_CONTENT_FOR_THINKING
-from mdrouter.adapters.openai_compat import QUIRK_REQUIRE_REASONING_CONTENT_FOR_TOOL_CALLS
+from mdrouter.adapters.openai_compat import (
+    QUIRK_REQUIRE_REASONING_CONTENT_FOR_TOOL_CALLS,
+)
 from mdrouter.config import AppConfig
 from mdrouter.config import ModelConfig
 from mdrouter.models import (
@@ -392,7 +394,9 @@ class ModelRouter:
             return "long_context"
 
         user_text = self._user_text(messages).lower()
-        if re.search(r"\b(refactor|rewrite|migrate|re-architect|rearchitect)\b", user_text):
+        if re.search(
+            r"\b(refactor|rewrite|migrate|re-architect|rearchitect)\b", user_text
+        ):
             return "heavy_refactor"
 
         return "default_coding"
@@ -486,7 +490,9 @@ class ModelRouter:
             if request_class_tag == "long_context":
                 score += min(float(cfg.context_length) / 100000.0, 20.0)
             elif request_class_tag == "heavy_refactor":
-                if any(token in alias_l for token in ("qwen", "deepseek", "glm", "kimi")):
+                if any(
+                    token in alias_l for token in ("qwen", "deepseek", "glm", "kimi")
+                ):
                     score += 6.0
             elif request_class_tag == "default_coding" and "nano" in alias_l:
                 score += 6.0
@@ -496,7 +502,10 @@ class ModelRouter:
                     score += 30.0
             elif policy == "quality_first":
                 score += min(float(cfg.context_length) / 100000.0, 10.0)
-                if any(token in alias_l for token in ("opus", "pro", "max", "qwen", "deepseek")):
+                if any(
+                    token in alias_l
+                    for token in ("opus", "pro", "max", "qwen", "deepseek")
+                ):
                     score += 8.0
 
             scored.append((score, alias))
@@ -664,10 +673,10 @@ class ModelRouter:
             ) or f"router:{effective_alias}"
             mutable_options["prompt_cache_key"] = key_template
         if (
-            (self.runtime.prompt_cache_retention or (
-                provider_cfg is not None
-                and provider_cfg.prompt_cache_retention
-            ))
+            (
+                self.runtime.prompt_cache_retention
+                or (provider_cfg is not None and provider_cfg.prompt_cache_retention)
+            )
             and "prompt_cache_retention" not in mutable_options
             and QUIRK_NO_PROMPT_CACHE not in provider_quirks
         ):
@@ -688,7 +697,10 @@ class ModelRouter:
         reasoning_effort = mutable_options.pop("reasoning_effort", None)
         has_thinking = thinking is not None or reasoning_effort is not None
 
-        if has_thinking and QUIRK_REQUIRE_REASONING_CONTENT_FOR_THINKING in provider_quirks:
+        if (
+            has_thinking
+            and QUIRK_REQUIRE_REASONING_CONTENT_FOR_THINKING in provider_quirks
+        ):
             mutable_messages = _inject_reasoning_content_for_thinking(mutable_messages)
 
         return (
@@ -939,11 +951,19 @@ class ModelRouter:
                 # Attach usage collected after the done chunk was buffered.
                 if isinstance(upstream_usage, dict):
                     pending_done_chunk["usage"] = upstream_usage
-                    pending_done_chunk["prompt_eval_count"] = upstream_usage.get("prompt_tokens", 0)
-                    pending_done_chunk["eval_count"] = upstream_usage.get("completion_tokens", 0)
+                    pending_done_chunk["prompt_eval_count"] = upstream_usage.get(
+                        "prompt_tokens", 0
+                    )
+                    pending_done_chunk["eval_count"] = upstream_usage.get(
+                        "completion_tokens", 0
+                    )
                 yield pending_done_chunk
             elif not saw_done:
-                yield done_chunk(model_alias=model_alias, had_content=content_sent, usage=upstream_usage)
+                yield done_chunk(
+                    model_alias=model_alias,
+                    had_content=content_sent,
+                    usage=upstream_usage,
+                )
 
 
 def normalize_chat_non_stream(
@@ -1005,7 +1025,9 @@ def normalize_chat_stream_chunk(
     return payload
 
 
-def done_chunk(*, model_alias: str, had_content: bool, usage: dict[str, Any] | None = None) -> dict[str, Any]:
+def done_chunk(
+    *, model_alias: str, had_content: bool, usage: dict[str, Any] | None = None
+) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "model": model_alias,
         "created_at": datetime.now(UTC).isoformat(),
