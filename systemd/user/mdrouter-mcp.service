@@ -1,11 +1,9 @@
 [Unit]
-Description=mdrouter MCP Server (Documentation + AI Agent Tools)
+Description=mdrouter MCP Server (User — Documentation + AI Agent Tools)
 After=network-online.target
-Wants=network-online.target
 
 [Service]
 Type=simple
-User=%i
 WorkingDirectory=%h/projects/mdrouter
 ExecStart=%h/projects/mdrouter/.venv/bin/python -m mdrouter.mcp --transport streamable-http --host 127.0.0.1 --port 11436
 Restart=always
@@ -13,16 +11,9 @@ RestartSec=3
 KillSignal=SIGINT
 TimeoutStopSec=20
 
-# Security
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=full
-ProtectHome=true
-ReadWritePaths=%h/.local/share/mdrouter %h/projects/mdrouter/logs
-
 # Performance
 LimitNOFILE=8192
 MemoryMax=512M
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target

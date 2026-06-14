@@ -328,7 +328,11 @@ class ResponseCacheBackend(ABC):
         base_b = semantic_base(b)
 
         def word_tokens(text: str) -> set[str]:
-            return {token for token in re.findall(r"[a-z0-9]+", text.lower()) if len(token) > 2}
+            return {
+                token
+                for token in re.findall(r"[a-z0-9]+", text.lower())
+                if len(token) > 2
+            }
 
         def char_ngrams(text: str, n: int = 3) -> set[str]:
             compact = f" {text.lower()} "
@@ -426,9 +430,7 @@ class MemoryResponseCache(ResponseCacheBackend):
 
             best: CacheEntry | None = None
             best_score = 0.0
-            latest_user_threshold = self._effective_latest_user_threshold(
-                self.settings
-            )
+            latest_user_threshold = self._effective_latest_user_threshold(self.settings)
             for entry in self._entries:
                 if entry.model_alias != model_alias or entry.provider != provider:
                     continue

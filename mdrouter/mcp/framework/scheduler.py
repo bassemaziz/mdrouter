@@ -27,6 +27,7 @@ class Scheduler:
     def __init__(self, config: SchedulerConfig) -> None:
         self.config = config
         self._tasks: dict[str, asyncio.Task[Any]] = {}
+        self._coroutines: dict[str, Callable[[], Any]] = {}
         self._stop_event = asyncio.Event()
         self._paused = False
         self._running = False
@@ -76,6 +77,7 @@ class Scheduler:
             except asyncio.CancelledError:
                 pass
         self._tasks.clear()
+        self._coroutines.clear()
         logger.info("Scheduler stopped")
 
     def pause(self) -> None:
@@ -90,9 +92,12 @@ class Scheduler:
 
     async def trigger_now(self, name: str) -> None:
         """Immediately execute a named task once (best-effort)."""
-        # We find the task's coroutine by looking at the running tasks
-        # and re-launch it. This is a best-effort immediate execution.
+        coro = self._coroutines.get(name)
+        if coro is None:
+            logger.warning("Task '%s' not found for manual trigger", name)
+            return
         logger.info("Manual trigger of task '%s'", name)
+        await self._execute_with_backoff(name, coro)
 
     @property
     def task_count(self) -> int:
@@ -135,9 +140,17 @@ class Scheduler:
                     backoff_seconds = 60 if success else min(backoff_seconds * 2, 3600)
 
         self._tasks[qualified] = asyncio.create_task(_runner())
-        logger.info("Registered task '%s' every %dh (jitter ±%ds)", qualified, interval_hours, self.config.jitter_seconds)
+        self._coroutines[qualified] = coroutine
+        logger.info(
+            "Registered task '%s' every %dh (jitter ±%ds)",
+            qualified,
+            interval_hours,
+            self.config.jitter_seconds,
+        )
 
-    async def _execute_with_backoff(self, name: str, coroutine: Callable[[], Any]) -> bool:
+    async def _execute_with_backoff(
+        self, name: str, coroutine: Callable[[], Any]
+    ) -> bool:
         """Execute coroutine, logging errors. Returns True on success."""
         start = time.monotonic()
         try:

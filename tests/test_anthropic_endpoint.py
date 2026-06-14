@@ -164,27 +164,27 @@ def test_v1_messages_non_stream_with_tools(tmp_path):
 def test_v1_messages_stream(tmp_path):
     """Test POST /v1/messages with streaming."""
     sse = (
-        'event: message_start\n'
+        "event: message_start\n"
         'data: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","content":[],"model":"claude","stop_reason":null,"usage":{"input_tokens":5,"output_tokens":1}}}\n'
-        '\n'
-        'event: content_block_start\n'
+        "\n"
+        "event: content_block_start\n"
         'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}\n'
-        '\n'
-        'event: content_block_delta\n'
+        "\n"
+        "event: content_block_delta\n"
         'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}\n'
-        '\n'
-        'event: content_block_delta\n'
+        "\n"
+        "event: content_block_delta\n"
         'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" world"}}\n'
-        '\n'
-        'event: content_block_stop\n'
+        "\n"
+        "event: content_block_stop\n"
         'data: {"type":"content_block_stop","index":0}\n'
-        '\n'
-        'event: message_delta\n'
+        "\n"
+        "event: message_delta\n"
         'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":10}}\n'
-        '\n'
-        'event: message_stop\n'
+        "\n"
+        "event: message_stop\n"
         'data: {"type":"message_stop"}\n'
-        '\n'
+        "\n"
     )
 
     respx.post("http://upstream.test/v1/messages").mock(
@@ -215,10 +215,10 @@ def test_v1_messages_stream(tmp_path):
         if line.startswith("event: "):
             if current_event is not None and current_data:
                 events.append((current_event, current_data))
-            current_event = line[len("event: "):]
+            current_event = line[len("event: ") :]
             current_data = ""
         elif line.startswith("data: "):
-            current_data = line[len("data: "):]
+            current_data = line[len("data: ") :]
         elif line == "" and current_event is not None:
             if current_data:
                 events.append((current_event, current_data))
@@ -241,33 +241,33 @@ def test_v1_messages_stream(tmp_path):
 def test_v1_messages_stream_with_tool_use(tmp_path):
     """Test /v1/messages streaming with tool_use."""
     sse = (
-        'event: message_start\n'
+        "event: message_start\n"
         'data: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","content":[],"model":"claude","stop_reason":null,"usage":{"input_tokens":10,"output_tokens":1}}}\n'
-        '\n'
-        'event: content_block_start\n'
+        "\n"
+        "event: content_block_start\n"
         'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}\n'
-        '\n'
-        'event: content_block_delta\n'
+        "\n"
+        "event: content_block_delta\n"
         'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Let me check."}}\n'
-        '\n'
-        'event: content_block_stop\n'
+        "\n"
+        "event: content_block_stop\n"
         'data: {"type":"content_block_stop","index":0}\n'
-        '\n'
-        'event: content_block_start\n'
+        "\n"
+        "event: content_block_start\n"
         'data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_1","name":"read_file","input":{}}}\n'
-        '\n'
-        'event: content_block_delta\n'
+        "\n"
+        "event: content_block_delta\n"
         'data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\\"path\\": \\"README.md\\"}"}}\n'
-        '\n'
-        'event: content_block_stop\n'
+        "\n"
+        "event: content_block_stop\n"
         'data: {"type":"content_block_stop","index":1}\n'
-        '\n'
-        'event: message_delta\n'
+        "\n"
+        "event: message_delta\n"
         'data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":25}}\n'
-        '\n'
-        'event: message_stop\n'
+        "\n"
+        "event: message_stop\n"
         'data: {"type":"message_stop"}\n'
-        '\n'
+        "\n"
     )
 
     respx.post("http://upstream.test/v1/messages").mock(

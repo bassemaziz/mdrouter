@@ -57,9 +57,7 @@ def test_multiple_system_messages_concatenated():
 
 def test_max_tokens_from_options():
     messages = [{"role": "user", "content": "hello"}]
-    _, _, max_tokens, _ = _openai_messages_to_anthropic(
-        messages, {"max_tokens": 1024}
-    )
+    _, _, max_tokens, _ = _openai_messages_to_anthropic(messages, {"max_tokens": 1024})
     assert max_tokens == 1024
 
 
@@ -112,7 +110,10 @@ def test_tool_call_to_anthropic():
                 {
                     "id": "call_1",
                     "type": "function",
-                    "function": {"name": "read_file", "arguments": '{"path": "README.md"}'},
+                    "function": {
+                        "name": "read_file",
+                        "arguments": '{"path": "README.md"}',
+                    },
                 }
             ],
         }
@@ -315,7 +316,12 @@ async def test_adapter_chat_once_with_tools():
                 "role": "assistant",
                 "model": "claude-opus-4-7",
                 "content": [
-                    {"type": "tool_use", "id": "tu_1", "name": "read_file", "input": {"path": "README.md"}},
+                    {
+                        "type": "tool_use",
+                        "id": "tu_1",
+                        "name": "read_file",
+                        "input": {"path": "README.md"},
+                    },
                 ],
                 "stop_reason": "tool_use",
                 "usage": {"input_tokens": 10, "output_tokens": 15},
@@ -357,7 +363,10 @@ async def test_adapter_chat_once_with_tools():
     assert req_tools[0]["name"] == "read_file"
 
     # Check tool_use in response
-    assert result["choices"][0]["message"]["tool_calls"][0]["function"]["name"] == "read_file"
+    assert (
+        result["choices"][0]["message"]["tool_calls"][0]["function"]["name"]
+        == "read_file"
+    )
 
 
 # ---------- Adapter chat_stream ----------
@@ -369,27 +378,27 @@ async def test_adapter_chat_stream():
     """Test streaming SSE parsing."""
 
     sse_events = (
-        'event: message_start\n'
+        "event: message_start\n"
         'data: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","content":[],"model":"claude","stop_reason":null,"usage":{"input_tokens":5,"output_tokens":1}}}\n'
-        '\n'
-        'event: content_block_start\n'
+        "\n"
+        "event: content_block_start\n"
         'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}\n'
-        '\n'
-        'event: content_block_delta\n'
+        "\n"
+        "event: content_block_delta\n"
         'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}\n'
-        '\n'
-        'event: content_block_delta\n'
+        "\n"
+        "event: content_block_delta\n"
         'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" world"}}\n'
-        '\n'
-        'event: content_block_stop\n'
+        "\n"
+        "event: content_block_stop\n"
         'data: {"type":"content_block_stop","index":0}\n'
-        '\n'
-        'event: message_delta\n'
+        "\n"
+        "event: message_delta\n"
         'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":10}}\n'
-        '\n'
-        'event: message_stop\n'
+        "\n"
+        "event: message_stop\n"
         'data: {"type":"message_stop"}\n'
-        '\n'
+        "\n"
     )
 
     respx.post("http://upstream.test/v1/messages").mock(
@@ -413,7 +422,11 @@ async def test_adapter_chat_stream():
         chunks.append(chunk)
 
     # We should get text content and a done chunk
-    texts = [c.get("message", {}).get("content", "") for c in chunks if c.get("message", {}).get("content")]
+    texts = [
+        c.get("message", {}).get("content", "")
+        for c in chunks
+        if c.get("message", {}).get("content")
+    ]
     assert "Hello world" in "".join(texts)
     assert any(c.get("done") for c in chunks)
 
@@ -424,33 +437,33 @@ async def test_adapter_chat_stream_with_tool_use():
     """Test streaming SSE parsing with tool_use."""
 
     sse_events = (
-        'event: message_start\n'
+        "event: message_start\n"
         'data: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","content":[],"model":"claude","stop_reason":null,"usage":{"input_tokens":10,"output_tokens":1}}}\n'
-        '\n'
-        'event: content_block_start\n'
+        "\n"
+        "event: content_block_start\n"
         'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}\n'
-        '\n'
-        'event: content_block_delta\n'
+        "\n"
+        "event: content_block_delta\n"
         'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Let me check."}}\n'
-        '\n'
-        'event: content_block_stop\n'
+        "\n"
+        "event: content_block_stop\n"
         'data: {"type":"content_block_stop","index":0}\n'
-        '\n'
-        'event: content_block_start\n'
+        "\n"
+        "event: content_block_start\n"
         'data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_1","name":"read_file","input":{}}}\n'
-        '\n'
-        'event: content_block_delta\n'
+        "\n"
+        "event: content_block_delta\n"
         'data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\\"path\\": \\"README.md\\"}"}}\n'
-        '\n'
-        'event: content_block_stop\n'
+        "\n"
+        "event: content_block_stop\n"
         'data: {"type":"content_block_stop","index":1}\n'
-        '\n'
-        'event: message_delta\n'
+        "\n"
+        "event: message_delta\n"
         'data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":20}}\n'
-        '\n'
-        'event: message_stop\n'
+        "\n"
+        "event: message_stop\n"
         'data: {"type":"message_stop"}\n'
-        '\n'
+        "\n"
     )
 
     respx.post("http://upstream.test/v1/messages").mock(
@@ -474,10 +487,7 @@ async def test_adapter_chat_stream_with_tool_use():
         chunks.append(chunk)
 
     # Should have a tool_calls delta in at least one chunk
-    tool_call_chunks = [
-        c for c in chunks
-        if (c.get("delta") or {}).get("tool_calls")
-    ]
+    tool_call_chunks = [c for c in chunks if (c.get("delta") or {}).get("tool_calls")]
     assert len(tool_call_chunks) >= 1
     tc = tool_call_chunks[0]["delta"]["tool_calls"][0]
     assert tc["function"]["name"] == "read_file"
@@ -489,30 +499,30 @@ async def test_adapter_handles_ping_events():
     """Test that ping events are silently ignored."""
 
     sse_events = (
-        'event: message_start\n'
+        "event: message_start\n"
         'data: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","content":[],"model":"claude","stop_reason":null,"usage":{"input_tokens":5,"output_tokens":1}}}\n'
-        '\n'
-        'event: ping\n'
+        "\n"
+        "event: ping\n"
         'data: {"type":"ping"}\n'
-        '\n'
-        'event: content_block_start\n'
+        "\n"
+        "event: content_block_start\n"
         'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}\n'
-        '\n'
-        'event: content_block_delta\n'
+        "\n"
+        "event: content_block_delta\n"
         'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}\n'
-        '\n'
-        'event: ping\n'
+        "\n"
+        "event: ping\n"
         'data: {"type":"ping"}\n'
-        '\n'
-        'event: content_block_stop\n'
+        "\n"
+        "event: content_block_stop\n"
         'data: {"type":"content_block_stop","index":0}\n'
-        '\n'
-        'event: message_delta\n'
+        "\n"
+        "event: message_delta\n"
         'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":10}}\n'
-        '\n'
-        'event: message_stop\n'
+        "\n"
+        "event: message_stop\n"
         'data: {"type":"message_stop"}\n'
-        '\n'
+        "\n"
     )
 
     respx.post("http://upstream.test/v1/messages").mock(

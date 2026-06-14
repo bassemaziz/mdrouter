@@ -98,7 +98,9 @@ class DocCrawler:
         # Discover URLs
         page_entries = await self._discover_urls(base_url)
         if not page_entries:
-            page_entries = [{"url": base_url, "title": "", "description": ""}]  # Fall back
+            page_entries = [
+                {"url": base_url, "title": "", "description": ""}
+            ]  # Fall back
 
         # Cap
         page_entries = page_entries[:max_pages]
@@ -181,7 +183,9 @@ class DocCrawler:
         # Try llms.txt first (richer metadata)
         llms_urls = await self._discover_from_llms_txt(base_url)
         if llms_urls:
-            logger.info("Discovered %d URLs from llms.txt for %s", len(llms_urls), base_url)
+            logger.info(
+                "Discovered %d URLs from llms.txt for %s", len(llms_urls), base_url
+            )
             return llms_urls
 
         # Fall back to sitemap.xml
@@ -202,7 +206,6 @@ class DocCrawler:
 
     async def _find_sitemaps(self, base_url: str) -> list[str]:
         """Find sitemap URLs from robots.txt and common locations."""
-        # We already parsed robots.txt in _read_robots; re-check common locations
         candidates = [
             urljoin(base_url, "/sitemap.xml"),
             urljoin(base_url, "/sitemap_index.xml"),
@@ -210,21 +213,27 @@ class DocCrawler:
             urljoin(base_url, "/sitemap.php"),
         ]
 
-        async with httpx.AsyncClient(
-            timeout=10.0,
-            headers={"User-Agent": self.user_agent},
-            follow_redirects=True,
-        ) as client:
-            for url in candidates:
-                try:
+        async def _check(url: str) -> str | None:
+            try:
+                async with httpx.AsyncClient(
+                    timeout=10.0,
+                    headers={"User-Agent": self.user_agent},
+                    follow_redirects=True,
+                ) as client:
                     resp = await client.get(url)
                     if resp.status_code == 200 and (
                         "sitemap" in resp.text.lower()[:200]
                         or "urlset" in resp.text.lower()[:200]
                     ):
-                        return [url]
-                except Exception:
-                    continue
+                        return url
+            except Exception:
+                pass
+            return None
+
+        results = await asyncio.gather(*[_check(u) for u in candidates])
+        for r in results:
+            if r is not None:
+                return [r]
         return []
 
     async def _parse_sitemap(self, sitemap_url: str) -> list[str]:
@@ -251,7 +260,6 @@ class DocCrawler:
             return []
 
         # Handle sitemap index (points to other sitemaps)
-        sitemap_ns = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
         for loc in root.findall(".//loc"):
             if loc.text:
                 url = loc.text.strip()
@@ -271,7 +279,6 @@ class DocCrawler:
         documentation indexes: https://llmstxt.org/
         """
         llms_url = urljoin(base_url.rstrip("/") + "/", "llms.txt")
-        urls: list[dict[str, str]] = []
 
         try:
             async with httpx.AsyncClient(
@@ -302,7 +309,7 @@ class DocCrawler:
           @key: value  (metadata, skipped)
         """
         entries: list[dict[str, str]] = []
-        url_re = re.compile(r'\[([^\]]+)\]\(([^)]+)\)')
+        url_re = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 
         for line in text.splitlines():
             line = line.strip()
@@ -317,12 +324,16 @@ class DocCrawler:
                 if match:
                     # Section header URL — include it
                     url = match.group(2)
-                    if url.startswith("http") and DocCrawler._is_same_domain(url, base_url):
-                        entries.append({
-                            "url": url,
-                            "title": match.group(1),
-                            "description": "",
-                        })
+                    if url.startswith("http") and DocCrawler._is_same_domain(
+                        url, base_url
+                    ):
+                        entries.append(
+                            {
+                                "url": url,
+                                "title": match.group(1),
+                                "description": "",
+                            }
+                        )
                 continue
 
             # Page entries: "- [Title](URL): Description"
@@ -334,20 +345,26 @@ class DocCrawler:
                 title = match.group(1)
                 if url.startswith("http") and DocCrawler._is_same_domain(url, base_url):
                     # Extract description after the URL
-                    after_link = line[match.end():]
+                    after_link = line[match.end() :]
                     description = after_link.lstrip(": ").strip()
-                    entries.append({
-                        "url": url,
-                        "title": title,
-                        "description": description,
-                    })
+                    entries.append(
+                        {
+                            "url": url,
+                            "title": title,
+                            "description": description,
+                        }
+                    )
 
         return entries
 
     # ── fetching ────────────────────────────────────────────────
 
     async def _fetch_and_store(
-        self, client: httpx.AsyncClient, entry: dict[str, str], source_id: int, doc_store: Any
+        self,
+        client: httpx.AsyncClient,
+        entry: dict[str, str],
+        source_id: int,
+        doc_store: Any,
     ) -> str:
         """Fetch a page, extract content, and store it. Returns 'new', 'updated', or 'skipped'."""
         url = entry["url"]
@@ -447,7 +464,9 @@ class DocCrawler:
             )
 
         # Extract title
-        title_match = re.search(r"<title[^>]*>(.*?)</title>", html, re.IGNORECASE | re.DOTALL)
+        title_match = re.search(
+            r"<title[^>]*>(.*?)</title>", html, re.IGNORECASE | re.DOTALL
+        )
         title = title_match.group(1).strip() if title_match else ""
 
         # Strip all tags
@@ -472,7 +491,9 @@ class DocCrawler:
                         line = line.strip().lower()
                         if line.startswith("crawl-delay:"):
                             try:
-                                self._robots_delay = float(line.split(":", 1)[1].strip())
+                                self._robots_delay = float(
+                                    line.split(":", 1)[1].strip()
+                                )
                                 logger.info(
                                     "robots.txt crawl-delay: %.1fs for %s",
                                     self._robots_delay,

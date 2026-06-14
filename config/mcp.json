@@ -8,12 +8,13 @@
   "port": 11436,
 
   "summarization": {
-    "enabled": true,
-    "model": "deepseek/deepseek-v4-flash",
+    "enabled": false,
+    "model": "novita/deepseek-r1",
     "max_concurrent": 3,
     "max_tokens_per_day": 200000,
     "max_chunk_tokens": 4000,
-    "prompt": "Summarize this documentation page into 3-5 key points. Focus on APIs, parameters, return types, and usage examples. Be concise — each point one sentence."
+    "max_response_tokens": 1000,
+    "prompt": "You are summarizing a documentation page. The code examples have already been extracted and will be shown separately. Focus ONLY on the prose.\n\nProduce 2-4 info snippets, each a short markdown section:\n\n### Overview\n1-2 sentence summary of what this page covers.\n\n### Key Concepts\n- Bullet points of important concepts, constraints, or gotchas.\n\n### API Behavior Notes\n- Notes on parameter behavior, edge cases, return values, etc.\n\nDO NOT reproduce any code examples. Code is shown separately."
   },
 
   "scheduler": {
@@ -22,13 +23,17 @@
     "jitter_seconds": 300
   },
 
+  "cache_ttl_seconds": 60,
+  "max_response_tokens": 1000,
+
   "capabilities": {
     "docs": {
       "user_agent": "mdrouter-docbot/1.0",
       "max_pages_per_site": 500,
       "max_concurrent_requests": 5,
       "request_delay_seconds": 0.5,
-      "crawl_interval_hours": 24
+      "crawl_interval_hours": 24,
+      "max_response_tokens": 1000
     }
   }
 }

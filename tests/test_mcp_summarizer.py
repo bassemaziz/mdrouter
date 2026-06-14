@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from mdrouter.mcp.capabilities.docs.summarizer import DocSummarizer, TokenBudget
+from mdrouter.mcp.capabilities.docs.summarizer import (
+    DocSummarizer,
+    TokenBudget,
+    _DEFAULT_PROMPT,
+)
 
 
 class TestTokenBudget:
@@ -51,16 +55,18 @@ class TestDocSummarizer:
         assert summ._budget.max_tokens_per_day == 5000
 
     def test_default_prompt(self):
-        prompt = DocSummarizer._default_prompt()
-        assert "summarize" in prompt.lower()
-        assert "api" in prompt.lower()
+        prompt = _DEFAULT_PROMPT
+        assert "summariz" in prompt.lower()
+        assert "code" in prompt.lower()
 
     @pytest.mark.asyncio
     async def test_summarize_source_no_pages(self):
         """Should handle empty source gracefully."""
+
         class FakeDocStore:
             async def get_source(self, name):
                 return {"id": 1, "name": name}
+
             async def list_pages(self, source_id, limit=9999):
                 return []
 
@@ -71,20 +77,24 @@ class TestDocSummarizer:
 
     @pytest.mark.asyncio
     async def test_summarize_skips_already_summarized(self):
-        """Should skip pages that already have summaries (cost-saving)."""
+        """Should skip pages that already have info snippets (cost-saving)."""
+
         class FakeDocStore:
             async def get_source(self, name):
                 return {"id": 1, "name": name}
+
             async def list_pages(self, source_id, limit=9999):
-                return [{"id": 1}, {"id": 2}]
-            async def has_summaries(self, page_id):
-                # Page 1 already summarized, page 2 not
-                return page_id == 1
+                return [
+                    {"id": 1, "content": "Some text."},
+                    {"id": 2, "content": ""},  # No content to process
+                ]
+
+            async def get_info_snippets(self, page_id):
+                return "[{}]" if page_id == 1 else "[]"
 
         summ = DocSummarizer(router=None, max_tokens_per_day=5000)
         result = await summ.summarize_source("test", FakeDocStore())
-        # Only page 2 should trigger summarization attempts
-        assert result.chunks_skipped == 0  # No actual API calls made
+        assert result.pages_processed == 0  # No actual API calls
         assert result.tokens_used == 0
 
     @pytest.mark.asyncio
@@ -102,18 +112,9 @@ class TestDocSummarizer:
                 )
 
         class FakeDocStore:
-            async def get_source(self, name):
-                return {"id": 1, "name": name}
-            async def list_pages(self, source_id, limit=9999):
-                return [{"id": 1}]
-            async def has_summaries(self, page_id):
-                return False
-            async def get_page(self, page_id):
-                return {
-                    "id": 1,
-                    "content": "Long sentence. " * 200,  # Creates multiple chunks
-                }
-            async def save_summary(self, page_id, chunk_index, chunk_text, summary, model_used, tokens_used):
+            async def set_info_snippets(
+                self, page_id, snippets_json, tokens_used=0, model=""
+            ):
                 pass
 
         # Budget only enough for 1 chunk
@@ -125,8 +126,10 @@ class TestDocSummarizer:
         )
 
         from mdrouter.mcp.capabilities.docs.summarizer import SummarizeResult
+
         result = SummarizeResult()
-        await summ._summarize_page(1, FakeDocStore(), result)
+        page = {"id": 1, "content": "Long sentence. " * 200}
+        await summ._summarize_page(page, FakeDocStore(), result)
 
         # Should have made at most 1 call before budget exhausted
         assert call_count <= 1

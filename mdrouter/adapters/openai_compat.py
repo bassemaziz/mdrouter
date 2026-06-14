@@ -12,9 +12,7 @@ from mdrouter.models import UpstreamProviderRequest
 QUIRK_REQUIRE_REASONING_CONTENT_FOR_TOOL_CALLS = (
     "require_reasoning_content_for_tool_calls"
 )
-QUIRK_REQUIRE_REASONING_CONTENT_FOR_THINKING = (
-    "require_reasoning_content_for_thinking"
-)
+QUIRK_REQUIRE_REASONING_CONTENT_FOR_THINKING = "require_reasoning_content_for_thinking"
 QUIRK_NORMALIZE_MULTIMODAL_CONTENT = "normalize_multimodal_content"
 QUIRK_NO_PROMPT_CACHE = "no_prompt_cache"
 QUIRK_STABLE_PREFIX = "stable_prefix"
@@ -111,9 +109,8 @@ class OpenAICompatibleAdapter(ProviderAdapter):
                 # Ensure content field exists (can be None or empty string)
                 if "content" not in clone:
                     clone["content"] = None
-            elif (
-                clone.get("role") == "assistant"
-                and isinstance(clone.get("tool_calls"), list)
+            elif clone.get("role") == "assistant" and isinstance(
+                clone.get("tool_calls"), list
             ):
                 # For tool-call history, keep content key stable across providers.
                 if "content" not in clone:
@@ -132,7 +129,9 @@ class OpenAICompatibleAdapter(ProviderAdapter):
             patched.append(clone)
         return patched
 
-    def _build_payload(self, request: UpstreamProviderRequest, *, stream: bool) -> dict[str, Any]:
+    def _build_payload(
+        self, request: UpstreamProviderRequest, *, stream: bool
+    ) -> dict[str, Any]:
         prepared_messages = self._prepare_messages(request.messages)
         payload: dict[str, Any] = {
             "model": request.model,
@@ -152,7 +151,14 @@ class OpenAICompatibleAdapter(ProviderAdapter):
                 {
                     key: value
                     for key, value in request.options.items()
-                    if key not in {"model", "messages", "stream", "thinking", "reasoning_effort"}
+                    if key
+                    not in {
+                        "model",
+                        "messages",
+                        "stream",
+                        "thinking",
+                        "reasoning_effort",
+                    }
                 }
             )
         return payload

@@ -1,21 +1,22 @@
-"""DocSummarizer — LLM-based documentation chunk summarization.
+"""DocSummarizer — LLM-based prose-only documentation summarization.
 
-Uses the shared mdrouter ModelRouter to call DeepSeek Flash (or configured model)
-for summarizing crawled documentation chunks.
+Uses the shared mdrouter ModelRouter to generate info snippets (prose only).
+Code snippets are extracted separately from raw HTML by CodeBlockExtractor.
 
-Cost-saving measures (every one of these matters):
-1. CACHE-FIRST: checks DocStore before calling LLM — never re-summarize
-2. HASH-DRIVEN: skips pages whose content_hash hasn't changed since last crawl
-3. TOKEN BUDGET: enforces max_tokens_per_day; refuses calls when exceeded
-4. CHUNK TRUNCATION: chunks are capped at max_chunk_tokens before sending to LLM
-5. SHORT PROMPT: uses a concise summarization prompt to minimize input tokens
-6. BATCHED: pages with multiple chunks are processed concurrently (but semaphore-limited)
+Cost-saving measures:
+1. CACHE-FIRST: checks info_snippets_json before calling LLM
+2. HASH-DRIVEN: skips pages whose content_hash hasn't changed
+3. TOKEN BUDGET: enforces max_tokens_per_day; refuses when exceeded
+4. CHUNK TRUNCATION: caps chunks at max_chunk_tokens before sending to LLM
+5. PROSE-ONLY: short prompt — no code reproduction (code is HTML-extracted)
+6. BATCHED: chunks processed concurrently (semaphore-limited)
 7. TOKEN TRACKING: logs every call's token usage for audit
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from dataclasses import dataclass, field
@@ -80,7 +81,12 @@ class TokenBudget:
 
 
 class DocSummarizer:
-    """Summarizes documentation chunks using the ModelRouter LLM."""
+    """Generates info snippets (prose only) using the ModelRouter LLM.
+
+    Code snippets are extracted separately by CodeBlockExtractor from
+    raw HTML — the LLM never reproduces code. This guarantees verbatim
+    code in responses.
+    """
 
     def __init__(
         self,
@@ -90,12 +96,14 @@ class DocSummarizer:
         max_tokens_per_day: int = 200_000,
         max_chunk_tokens: int = 4000,
         prompt: str = "",
+        max_response_tokens: int = 1000,
     ) -> None:
         self._router = router
         self.model = model
         self._max_concurrent = max_concurrent
         self._max_chunk_tokens = max_chunk_tokens
         self._prompt = prompt
+        self._max_response_tokens = max_response_tokens
         self._budget = TokenBudget(max_tokens_per_day)
         self._semaphore = asyncio.Semaphore(max_concurrent)
 
@@ -107,7 +115,10 @@ class DocSummarizer:
         doc_store: Any,  # DocStore
         max_pages: int | None = None,
     ) -> SummarizeResult:
-        """Summarize all unsummarized pages for a source.
+        """Generate info snippets for all unsummarized pages in a source.
+
+        Skips pages that already have info_snippets_json populated
+        (cost-saving: cache-first, no redundant LLM calls).
 
         Args:
             source_name: Which documentation source to process.
@@ -129,34 +140,37 @@ class DocSummarizer:
         if max_pages:
             pages = pages[:max_pages]
 
-        # Filter to pages without summaries (cost-saving: skip already-done)
-        to_process: list[int] = []
+        # Filter to pages without info snippets (cost-saving)
+        to_process: list[dict[str, Any]] = []
         for page in pages:
-            if not await doc_store.has_summaries(page["id"]):
-                to_process.append(page["id"])
+            existing = await doc_store.get_info_snippets(page["id"])
+            if not existing or existing == "[]":
+                to_process.append(page)
 
         if not to_process:
-            logger.info("All %d pages already summarized for '%s'", len(pages), source_name)
+            logger.info(
+                "All %d pages already have info snippets for '%s'",
+                len(pages),
+                source_name,
+            )
             result.duration_seconds = time.monotonic() - start
             return result
 
         logger.info(
-            "Summarizing %d/%d pages for '%s'",
+            "Generating info snippets for %d/%d pages of '%s'",
             len(to_process),
             len(pages),
             source_name,
         )
 
         # Process concurrently with semaphore
-        tasks = [
-            self._summarize_page(page_id, doc_store, result)
-            for page_id in to_process
-        ]
+        tasks = [self._summarize_page(page, doc_store, result) for page in to_process]
         await asyncio.gather(*tasks, return_exceptions=True)
 
         result.duration_seconds = time.monotonic() - start
         logger.info(
-            "Summarization of '%s' done in %.1fs: %d chunks summarized, %d skipped, %d tokens used",
+            "Summarization of '%s' done in %.1fs: %d chunks summarized, "
+            "%d skipped, %d tokens used",
             source_name,
             result.duration_seconds,
             result.chunks_summarized,
@@ -169,68 +183,89 @@ class DocSummarizer:
 
     async def _summarize_page(
         self,
-        page_id: int,
+        page: dict[str, Any],
         doc_store: Any,
         result: SummarizeResult,
     ) -> None:
-        """Summarize a single page's chunks."""
-        page = await doc_store.get_page(page_id)
-        if not page or not page.get("content"):
+        """Generate info snippets for a single page.
+
+        1. Chunk the page text
+        2. Call LLM for each chunk (prose-only prompt)
+        3. Merge chunk summaries into a single info_snippets JSON array
+        4. Store via doc_store.set_info_snippets()
+        """
+        content = page.get("content", "")
+        if not content:
             return
 
         from mdrouter.mcp.capabilities.docs.crawler import chunk_text
 
-        chunks = chunk_text(page["content"], max_words=500)
+        chunks = chunk_text(content, max_words=500)
         if not chunks:
             return
 
         result.pages_processed += 1
+        page_snippets: list[dict[str, str]] = []
+        total_tokens = 0
 
         for idx, chunk in enumerate(chunks):
-            # Truncate to max tokens (rough estimate: 1 token ≈ 4 chars)
+            # Truncate chunk to max_chunk_tokens
             max_chars = self._max_chunk_tokens * 4
             if len(chunk) > max_chars:
                 chunk = chunk[:max_chars]
 
-            # Cost-saving: check budget before each call
-            estimated_tokens = len(chunk) // 3 + 200  # rough: input + output estimate
+            # Check token budget
+            estimated_tokens = len(chunk) // 3 + 300
             if not self._budget.can_spend(estimated_tokens):
                 result.budget_exceeded = True
                 logger.warning(
-                    "Token budget exceeded (%d/%d used). Skipping remaining chunks.",
+                    "Token budget exceeded (%d/%d used). Skipping remaining.",
                     self._budget.used,
                     self._budget.max_tokens_per_day,
                 )
-                return
+                break
 
             async with self._semaphore:
                 try:
-                    summary, tokens = await self._call_llm(chunk)
-                    await doc_store.save_summary(
-                        page_id=page_id,
-                        chunk_index=idx,
-                        chunk_text=chunk,
-                        summary=summary,
-                        model_used=self.model,
-                        tokens_used=tokens,
-                    )
+                    snippet_text, tokens = await self._call_llm(chunk)
+                    if snippet_text:
+                        page_snippets.append(
+                            {
+                                "title": f"Section {idx + 1}",
+                                "content": snippet_text,
+                            }
+                        )
                     self._budget.spend(tokens)
+                    total_tokens += tokens
                     result.tokens_used += tokens
                     result.chunks_summarized += 1
                 except Exception as exc:
-                    result.errors.append(f"Page {page_id} chunk {idx}: {exc}")
+                    result.errors.append(f"Page {page['id']} chunk {idx}: {exc}")
                     result.chunks_skipped += 1
 
+        if page_snippets:
+            # Store as JSON
+            snippets_json = json.dumps(page_snippets, ensure_ascii=False)
+            await doc_store.set_info_snippets(
+                page_id=page["id"],
+                snippets_json=snippets_json,
+                tokens_used=total_tokens,
+                model=self.model,
+            )
+
     async def _call_llm(self, chunk_text: str) -> tuple[str, int]:
-        """Call the LLM to summarize a chunk. Returns (summary, tokens_used)."""
+        """Call the LLM to summarize a chunk. Returns (summary_text, tokens_used).
+
+        Summary is prose-only — no code reproduction (code is HTML-extracted).
+        """
         messages = [
-            {"role": "system", "content": self._prompt or self._default_prompt()},
+            {"role": "system", "content": self._prompt or _DEFAULT_PROMPT},
             {"role": "user", "content": chunk_text},
         ]
 
         response, meta = await self._router.chat_once(
+            model_alias=self.model,
             messages=messages,
-            model=self.model,
             options={"temperature": 0.3, "max_tokens": 300},
         )
 
@@ -246,10 +281,15 @@ class DocSummarizer:
 
         return summary.strip(), tokens_used
 
-    @staticmethod
-    def _default_prompt() -> str:
-        return (
-            "Summarize this documentation page into 3-5 key points. "
-            "Focus on APIs, parameters, return types, and usage examples. "
-            "Be concise — each point one sentence."
-        )
+
+_DEFAULT_PROMPT = (
+    "You are summarizing a documentation page. The code examples have "
+    "already been extracted and will be shown separately. Focus ONLY on "
+    "the prose.\n\n"
+    "Summarize this section in 2-4 concise bullet points. Cover:\n"
+    "- What it's about (1 sentence overview)\n"
+    "- Key concepts, constraints, or gotchas\n"
+    "- API behavior notes (parameter behavior, edge cases, return values)\n\n"
+    "DO NOT reproduce any code examples. Code is shown separately.\n"
+    "Be concise — each point one sentence."
+)

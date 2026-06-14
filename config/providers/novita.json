@@ -6,6 +6,10 @@
       "api_key_env": "NOVITA_API_KEY",
       "headers": {},
       "wire_format": "openai_chat",
+      "quirks": [
+        "stable_prefix"
+      ],
+      "prompt_cache_key_template": "router:novita",
       "timeout": 90
     }
   },
@@ -16,6 +20,24 @@
       "capabilities": ["chat", "stream", "tools", "vision"],
       "context_length": 32768,
       "extra": {}
+    },
+    "novita/minimax-m3": {
+      "provider": "novita",
+      "upstream_model": "minimax/minimax-m3",
+      "capabilities": ["chat", "stream", "tools", "vision"],
+      "context_length": 1000000,
+      "extra": {
+        "max_output_tokens": 131072
+      }
+    },
+    "novita/qwen3.7-max": {
+      "provider": "novita",
+      "upstream_model": "qwen/qwen3.7-max",
+      "capabilities": ["chat", "stream", "tools"],
+      "context_length": 1000000,
+      "extra": {
+        "max_output_tokens": 65536
+      }
     }
   }
 }
