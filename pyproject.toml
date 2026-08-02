@@ -34,7 +34,7 @@ mdrouter-mcp = "mdrouter.mcp:main"
 
 [project.optional-dependencies]
 mcp = [
-  "mcp>=1.0,<2",
+  "mcp>=1.0,<3",
   "aiosqlite>=0.20",
   "trafilatura>=1.12",
 ]
